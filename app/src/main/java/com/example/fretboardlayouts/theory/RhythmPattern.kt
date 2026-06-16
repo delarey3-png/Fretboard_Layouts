@@ -41,3 +41,14 @@ fun parsePattern(notation: String): RhythmPattern {
     }
     return result
 }
+
+/**
+ * Parses a strum-direction notation string into a list of booleans (true = downstroke).
+ * Any character works as "downstroke" except 'u', which means upstroke.
+ * Must be the same length as the [RhythmPattern] it pairs with; positions where
+ * the pattern is REST are never read, so any character is fine there.
+ */
+fun parseDirections(notation: String): List<Boolean> {
+    val cleaned = notation.filter { it != ' ' && it != ',' }
+    return cleaned.map { it != 'u' }
+}

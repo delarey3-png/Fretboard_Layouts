@@ -24,6 +24,13 @@ fun tripletToMs(beat: Int, tripletInBeat: Int, timeSignature: TimeSignature, dur
     return (durationMs * (beat * 3 + tripletInBeat)) / tripletsPerBar
 }
 
+/** Converts a beat index + tick-within-beat into a millisecond offset, for an arbitrary
+ *  number of ticks per beat. Generalizes slotToMs (ticksPerBeat = 4) and tripletToMs (ticksPerBeat = 3). */
+fun beatTickToMs(beat: Int, tickInBeat: Int, ticksPerBeat: Int, timeSignature: TimeSignature, durationMs: Long): Long {
+    val totalTicks = timeSignature.beatsPerBar * ticksPerBeat
+    return (durationMs * (beat * ticksPerBeat + tickInBeat)) / totalTicks
+}
+
 /** Everything screen 2 needs to render + play ONE chord's worth of the jam */
 data class TimelineEvent(
     val barIndex: Int,           // 0-based bar number within the loop
