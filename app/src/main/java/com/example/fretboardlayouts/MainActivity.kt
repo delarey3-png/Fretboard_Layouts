@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,19 +30,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
-import com.example.fretboardlayouts.theory.ChordTonePosition
-import com.example.fretboardlayouts.theory.FretboardPosition
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,21 +64,20 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import com.example.fretboardlayouts.theory.ChordOverlayMode
 import com.example.fretboardlayouts.theory.Genre
 import com.example.fretboardlayouts.theory.JamTimeline
 import com.example.fretboardlayouts.theory.MusicKey
 import com.example.fretboardlayouts.theory.NOTE_NAMES
+import com.example.fretboardlayouts.theory.PresetOption
 import com.example.fretboardlayouts.theory.Progressions
 import com.example.fretboardlayouts.theory.ScaleType
+import com.example.fretboardlayouts.theory.StrumPreset
 import com.example.fretboardlayouts.theory.TimeSignature
+import com.example.fretboardlayouts.theory.allGuitarPresets
 import com.example.fretboardlayouts.theory.buildJamTimeline
+import com.example.fretboardlayouts.theory.buildPresetOptions
+import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -109,6 +112,10 @@ class MainActivity : ComponentActivity() {
                         onChordModeSelected = { viewModel.selectedChordMode.value = it },
                         selectedGenre = viewModel.selectedGenre.value,
                         onGenreSelected = { viewModel.selectedGenre.value = it },
+                        selectedGuitarPreset = viewModel.selectedGuitarPreset.value,
+                        onGuitarPresetSelected = { viewModel.selectedGuitarPreset.value = it },
+                        customStrumMode = viewModel.customStrumMode.value,
+                        onCustomStrumModeToggled = { viewModel.customStrumMode.value = it },
                         selectedTempo = viewModel.selectedTempo.intValue,
                         onTempoSelected = { viewModel.selectedTempo.intValue = it },
                         audioStatus = audioStatus.value,
@@ -141,6 +148,10 @@ fun SetupScreen(
     onChordModeSelected: (ChordOverlayMode) -> Unit,
     selectedGenre: Genre,
     onGenreSelected: (Genre) -> Unit,
+    selectedGuitarPreset: StrumPreset?,
+    onGuitarPresetSelected: (StrumPreset) -> Unit,
+    customStrumMode: Boolean,
+    onCustomStrumModeToggled: (Boolean) -> Unit,
     selectedTempo: Int,
     onTempoSelected: (Int) -> Unit,
     audioStatus: String,
@@ -195,10 +206,22 @@ fun SetupScreen(
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // Empty for now - reserved for a future setting (e.g. Loop length)
+                PresetDropdown(
+                    label = "Strum Pattern",
+                    options = buildPresetOptions(allGuitarPresets, selectedGenre, selectedTimeSignature, customStrumMode),
+                    selectedName = selectedGuitarPreset?.name ?: "Default",
+                    onSelected = onGuitarPresetSelected
+                )
             }
         }
-
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Custom Strum Mode", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(checked = customStrumMode, onCheckedChange = onCustomStrumModeToggled)
+        }
         SetupDropdown(
             label = "Progression",
             selected = selectedProgression,
@@ -279,6 +302,45 @@ fun SetupDropdown(
                         text = { Text(option) },
                         onClick = {
                             onSelected(option)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+        HorizontalDivider()
+    }
+}
+
+@Composable
+fun PresetDropdown(
+    label: String,
+    options: List<PresetOption>,
+    selectedName: String,
+    onSelected: (StrumPreset) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(vertical = 12.dp)
+        ) {
+            Text(selectedName, style = MaterialTheme.typography.bodyLarge)
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.fillMaxWidth(0.8f)
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.preset.name) },
+                        enabled = option.enabled,
+                        onClick = {
+                            onSelected(option.preset)
                             expanded = false
                         }
                     )
@@ -805,6 +867,10 @@ fun SetupScreenPreview() {
             onChordModeSelected = {},
             selectedGenre = Genre.ROCK,
             onGenreSelected = {},
+            selectedGuitarPreset = null,
+            onGuitarPresetSelected = {},
+            customStrumMode = false,
+            onCustomStrumModeToggled = {},
             selectedTempo = 100,
             onTempoSelected = {},
             audioStatus = "FluidSynth (Preview)",

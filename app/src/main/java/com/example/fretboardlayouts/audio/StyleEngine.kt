@@ -6,11 +6,9 @@ import com.example.fretboardlayouts.theory.ResolvedChord
 import com.example.fretboardlayouts.theory.midiNote
 import com.example.fretboardlayouts.theory.pitchClassAt
 import com.example.fretboardlayouts.theory.TimeSignature
-import com.example.fretboardlayouts.theory.slotToMs
-import com.example.fretboardlayouts.theory.subdivisionCount
-import com.example.fretboardlayouts.theory.tripletToMs
 import com.example.fretboardlayouts.theory.parsePattern
-import com.example.fretboardlayouts.theory.parseDirections
+import com.example.fretboardlayouts.theory.StrumPreset
+
 
 /**
  * The "Band-in-a-Box" style engine.
@@ -18,7 +16,7 @@ import com.example.fretboardlayouts.theory.parseDirections
  */
 object StyleEngine {
 
-    fun generateAccompaniment(timeline: JamTimeline, genre: Genre): List<BackingTrackGenerator.MidiNoteEvent> {
+    fun generateAccompaniment(timeline: JamTimeline, genre: Genre, guitarPreset: StrumPreset): List<BackingTrackGenerator.MidiNoteEvent> {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
 
@@ -27,10 +25,9 @@ object StyleEngine {
             val startMs = event.startMs
             val durationMs = event.durationMs
 
-            // Generate each instrument track based on the genre
             allEvents.addAll(generateDrums(startMs, durationMs, genre, timeSignature))
             allEvents.addAll(generateBass(startMs, durationMs, chord, genre, timeSignature))
-            allEvents.addAll(generateGuitar(startMs, durationMs, chord, genre, timeSignature))
+            allEvents.addAll(generateGuitar(startMs, durationMs, chord, guitarPreset, timeSignature))
         }
 
         return allEvents.sortedBy { it.timeMs }
@@ -182,51 +179,9 @@ object StyleEngine {
         return events
     }
 
-    private fun generateGuitar(startMs: Long, durationMs: Long, chord: ResolvedChord, genre: Genre, timeSignature: TimeSignature): List<BackingTrackGenerator.MidiNoteEvent> {
-        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+    private fun generateGuitar(startMs: Long, durationMs: Long, chord: ResolvedChord, preset: StrumPreset, timeSignature: TimeSignature): List<BackingTrackGenerator.MidiNoteEvent> {
         val voicing = findGuitarVoicing(chord)
-
-        when (genre) {
-            Genre.ROCK -> {
-                // Driving downstrokes, accented on beat 1
-                val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
-                val directions = parseDirections("d".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(pattern, directions, voicing, startMs, durationMs, timeSignature, 0, 72, 80, ticksPerBeat = 1))
-            }
-            Genre.BLUES -> {
-                // Shuffle: down on the beat (full voicing), quick up on the shuffle tail (smaller voicing)
-                val downPattern = parsePattern("x__".repeat(timeSignature.beatsPerBar))
-                val downDirections = parseDirections("d__".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(downPattern, downDirections, voicing, startMs, durationMs, timeSignature, 0, 85, 85, ticksPerBeat = 3))
-
-                val upPattern = parsePattern("__x".repeat(timeSignature.beatsPerBar))
-                val upDirections = parseDirections("__u".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(upPattern, upDirections, voicing.takeLast(3), startMs, durationMs, timeSignature, 0, 60, 60, ticksPerBeat = 3))
-            }
-            Genre.COUNTRY -> {
-                // "Chick": upstroke on the "&" of every beat
-                val pattern = parsePattern("_x".repeat(timeSignature.beatsPerBar))
-                val directions = parseDirections("_u".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(pattern, directions, voicing.takeLast(4), startMs, durationMs, timeSignature, 0, 75, 75, ticksPerBeat = 2))
-            }
-            Genre.FUNK -> {
-                // Scratchy: down on the "&", up on the "a"
-                val downPattern = parsePattern("__x_".repeat(timeSignature.beatsPerBar))
-                val downDirections = parseDirections("__d_".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(downPattern, downDirections, voicing.takeLast(3), startMs, durationMs, timeSignature, 0, 80, 80, ticksPerBeat = 4))
-
-                val upPattern = parsePattern("___x".repeat(timeSignature.beatsPerBar))
-                val upDirections = parseDirections("___u".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(upPattern, upDirections, voicing.takeLast(3), startMs, durationMs, timeSignature, 0, 60, 60, ticksPerBeat = 4))
-            }
-            Genre.JAZZ -> {
-                // "Freddie Green" shell voicings, downstroke every beat
-                val pattern = parsePattern("x".repeat(timeSignature.beatsPerBar))
-                val directions = parseDirections("d".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderStrum(pattern, directions, voicing.take(3), startMs, durationMs, timeSignature, 0, 65, 65, ticksPerBeat = 1))
-            }
-        }
-        return events
+        return renderPreset(preset, voicing, startMs, durationMs, timeSignature, channel = 0)
     }
 
     private fun findGuitarVoicing(chord: ResolvedChord): List<Int> {

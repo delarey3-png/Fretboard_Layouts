@@ -23,6 +23,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.fretboardlayouts.theory.StrumPreset
+import com.example.fretboardlayouts.theory.allGuitarPresets
+import com.example.fretboardlayouts.theory.resolveSelection
+import com.example.fretboardlayouts.theory.buildPresetOptions
+import com.example.fretboardlayouts.theory.PresetOption
 
 // 1. Define the possible screens/states of our app
 sealed class AppState {
@@ -44,6 +49,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var selectedTempo = mutableIntStateOf(100)
     var selectedGenre = mutableStateOf(Genre.ROCK)
     var selectedTimeSignature = mutableStateOf(TimeSignature.FOUR_FOUR)
+    var selectedGuitarPreset = mutableStateOf<StrumPreset?>(null)
+    var customStrumMode = mutableStateOf(false)
 
     // This holds the current screen state that Compose will watch
     var currentScreenState = mutableStateOf<AppState>(AppState.Setup)
@@ -99,9 +106,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 
                 builtTimeline
             }
-
-            // Pre-generate the MIDI track events based on Genre
-            backingTrackEvents = StyleEngine.generateAccompaniment(timeline, selectedGenre.value)
+            val resolvedPreset = resolveSelection(
+                selectedGuitarPreset.value, allGuitarPresets, selectedGenre.value, selectedTimeSignature.value, customStrumMode.value
+            ) ?: allGuitarPresets.first()
+            selectedGuitarPreset.value = resolvedPreset
+            backingTrackEvents = StyleEngine.generateAccompaniment(timeline, selectedGenre.value, resolvedPreset)
             
             // Set up instruments for the MIDI path
             if (midiPlayer.isMidiAvailable()) {

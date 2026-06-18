@@ -4,6 +4,13 @@ import com.example.fretboardlayouts.theory.RhythmPattern
 import com.example.fretboardlayouts.theory.SlotState
 import com.example.fretboardlayouts.theory.TimeSignature
 import com.example.fretboardlayouts.theory.beatTickToMs
+import com.example.fretboardlayouts.theory.MeterShape
+import com.example.fretboardlayouts.theory.shape
+import com.example.fretboardlayouts.theory.StrumPreset
+import com.example.fretboardlayouts.theory.applySubset
+import com.example.fretboardlayouts.theory.parsePattern
+import com.example.fretboardlayouts.theory.parseDirections
+
 
 fun renderVoice(
     pattern: RhythmPattern,
@@ -102,4 +109,28 @@ private fun addStrum(events: MutableList<BackingTrackGenerator.MidiNoteEvent>, t
     sortedPitches.forEachIndexed { i, pitch ->
         events.add(BackingTrackGenerator.MidiNoteEvent(time + (i * 20), channel, pitch, velocity, 800))
     }
+}
+fun renderPreset(
+    preset: StrumPreset,
+    voicing: List<Int>,
+    startMs: Long,
+    durationMs: Long,
+    timeSignature: TimeSignature,
+    channel: Int
+): List<BackingTrackGenerator.MidiNoteEvent> {
+    val shape = timeSignature.shape()
+    val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+    preset.layers.forEach { layer ->
+        val patternStr = layer.patternByShape[shape] ?: return@forEach
+        val directionsStr = layer.directionsByShape[shape] ?: return@forEach
+        events.addAll(
+            renderStrum(
+                parsePattern(patternStr), parseDirections(directionsStr),
+                voicing.applySubset(layer.voicingSubset),
+                startMs, durationMs, timeSignature, channel,
+                layer.normalVelocity, layer.accentVelocity, ticksPerBeat = layer.ticksPerBeat
+            )
+        )
+    }
+    return events
 }
