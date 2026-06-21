@@ -28,6 +28,11 @@ import com.example.fretboardlayouts.theory.allGuitarPresets
 import com.example.fretboardlayouts.theory.resolveSelection
 import com.example.fretboardlayouts.theory.buildPresetOptions
 import com.example.fretboardlayouts.theory.PresetOption
+import com.example.fretboardlayouts.theory.FretboardPosition // NEW 21.06
+import com.example.fretboardlayouts.theory.ChordTonePosition // NEW 21.06
+import com.example.fretboardlayouts.theory.generateScaleOverlay // NEW 21.06
+import com.example.fretboardlayouts.theory.generateChordToneOverlay // NEW 21.06
+import com.example.fretboardlayouts.theory.overlayScalePitchClasses // NEW 21.06
 
 // 1. Define the possible screens/states of our app
 sealed class AppState {
@@ -51,7 +56,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var selectedTimeSignature = mutableStateOf(TimeSignature.FOUR_FOUR)
     var selectedGuitarPreset = mutableStateOf<StrumPreset?>(null)
     var customStrumMode = mutableStateOf(false)
+    // --- LIVE DISPLAY STATE (mid-jam, no rebuild needed) --- // NEW 21.06
+    var liveScaleType = mutableStateOf(ScaleType.PENTATONIC) // NEW 21.06
+    var liveOverlayMode = mutableStateOf(ChordOverlayMode.ALL_CHORD_TONES) // NEW 21.06
+    var scaleOverlayVisible = mutableStateOf(true) // NEW 21.06
+    var chordOverlayVisible = mutableStateOf(true) // NEW 21.06
+    var currentJamTimeline = mutableStateOf<JamTimeline?>(null) // NEW 21.06
+    var currentChordIndex = mutableStateOf(0) // NEW 21.06
+    // --- LIVE OVERLAY CALCULATIONS --- // NEW
+    val liveScaleOverlay: List<FretboardPosition> // NEW
+        get() { // NEW
+            val timeline = currentJamTimeline.value ?: return emptyList() // NEW
+            if (!scaleOverlayVisible.value) return emptyList() // NEW
+            return generateScaleOverlay(timeline.key, liveScaleType.value) // NEW
+        } // NEW
 
+    val liveChordToneOverlay: List<ChordTonePosition> // NEW 21.06
+        get() { // NEW
+            val timeline = currentJamTimeline.value ?: return emptyList() // NEW 21.06
+            if (!chordOverlayVisible.value) return emptyList() // NEW 21.06
+            val events = timeline.events // NEW 21.06
+            if (events.isEmpty()) return emptyList() // NEW 21.06
+            val currentEvent = events[currentChordIndex.value.coerceIn(0, events.size - 1)] // NEW 21.06
+            val scalePcs = overlayScalePitchClasses(timeline.key, liveScaleType.value) // NEW 21.06
+            return generateChordToneOverlay(currentEvent.chord, liveOverlayMode.value, scalePcs) // NEW 21.06
+        } // NEW 21.06
     // This holds the current screen state that Compose will watch
     var currentScreenState = mutableStateOf<AppState>(AppState.Setup)
         private set
@@ -119,6 +148,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             lastSequencerLoopTime = -1L
 
+            liveScaleType.value = selectedScaleOverlay.value // NEW 21.06
+            liveOverlayMode.value = selectedChordMode.value // NEW 21.06
+            scaleOverlayVisible.value = true // NEW 21.06
+            chordOverlayVisible.value = true // NEW 21.06
+            currentJamTimeline.value = timeline // NEW 21.06
+            currentChordIndex.value = 0 // NEW 21.06
             // STEP C: Construction complete! Move to Screen 2 with the timeline
             withContext(Dispatchers.Main) {
                 currentScreenState.value = AppState.Playback(timeline)
@@ -165,10 +200,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } ?: return
 
         val eventIndex = timeline.events.indexOf(currentEvent)
-        if (eventIndex != lastPlayedEventIndex) {
-            lastPlayedEventIndex = eventIndex
-            // UI trigger for visual sync if needed (currently dots are driven by 'currentEvent' in the Composable)
-        }
+        if (eventIndex != lastPlayedEventIndex) { // MODIFIED 21.06
+            lastPlayedEventIndex = eventIndex // MODIFIED 21.06
+            currentChordIndex.value = eventIndex // NEW 21.06
+        } // MODIFIED 21.06
     }
 
     fun stopAudio() {
@@ -192,3 +227,4 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         midiPlayer.release()
     }
 }
+
