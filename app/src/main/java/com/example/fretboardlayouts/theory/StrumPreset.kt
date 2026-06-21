@@ -1,8 +1,12 @@
 package com.example.fretboardlayouts.theory
 
-enum class MeterShape { FOUR_BEAT, THREE_BEAT }
+enum class MeterShape { THREE_BEAT, FOUR_BEAT, FIVE_BEAT }
 
-fun TimeSignature.shape(): MeterShape = if (beatsPerBar == 3) MeterShape.THREE_BEAT else MeterShape.FOUR_BEAT
+fun TimeSignature.shape(): MeterShape = when (beatsPerBar) {
+    3 -> MeterShape.THREE_BEAT
+    5 -> MeterShape.FIVE_BEAT
+    else -> MeterShape.FOUR_BEAT
+}
 
 /** Which strings of a chord voicing a layer plays. Voicings are built low-to-high,
  *  so "top" means the higher-pitched strings. */

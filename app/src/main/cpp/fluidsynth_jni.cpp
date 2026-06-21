@@ -12,10 +12,22 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_fretboardlayouts_audio_FluidSynthEngine_nativeInit(JNIEnv*, jobject, jint sampleRate) {
     settings = new_fluid_settings();
     fluid_settings_setnum(settings, "synth.sample-rate", (double) sampleRate);
-    fluid_settings_setint(settings, "synth.audio-channels", 1);
+    fluid_settings_setint(settings, "synth.audio-channels", 2);
+    fluid_settings_setnum(settings, "synth.gain", 0.6);
 
     synth = new_fluid_synth(settings);
     if (!synth) { LOGE("Failed to create synth"); return JNI_FALSE; }
+
+    // Tune reverb to subtle room sound instead of default heavy hall
+    fluid_synth_set_reverb_on(synth, 1);
+    fluid_synth_set_reverb(synth, 0.2, 0.0, 0.5, 0.3);
+// roomsize, damping, width, level — much drier than default
+
+// Reduce chorus — default chorus adds a warbling effect that muddies guitar
+    fluid_synth_set_chorus_on(synth, 1);
+    fluid_synth_set_chorus(synth, 2, 0.3, 0.25, 3.0, FLUID_CHORUS_MOD_SINE);
+// nr, level, speed, depth, type
+
     return JNI_TRUE;
 }
 

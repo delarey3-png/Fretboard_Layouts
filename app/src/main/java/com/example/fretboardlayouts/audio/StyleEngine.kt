@@ -38,102 +38,110 @@ object StyleEngine {
 
         when (genre) {
             Genre.ROCK -> {
-                val is3 = timeSignature.beatsPerBar == 3
-
-                // Hi-hat: straight 8ths, accented on each downbeat
-                val hihatPattern = parsePattern(
-                    if (is3) "<1>_&_<2>_&_<3>_&_" else "<1>_&_<2>_&_<3>_&_<4>_&_"
-                )
+                val hihatPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<1>_&_<2>_&_<3>_&_"
+                    5 -> "<1>_&_<2>_&_<3>_&_<4>_&_<5>_&_"
+                    else -> "<1>_&_<2>_&_<3>_&_<4>_&_"
+                })
                 events.addAll(renderVoice(hihatPattern, startMs, durationMs, timeSignature, 9, 42, 65, 80))
 
-                // Kick: beat 1 always (accented), beat 3 too in 4/4
-                val kickPattern = parsePattern(
-                    if (is3) "<1>___ ____ ____" else "<1>___ ____ 3___ ____"
-                )
+                val kickPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<1>___ ____ ____"
+                    5 -> "<1>___ ____ ____ x___ ____"
+                    else -> "<1>___ ____ 3___ ____"
+                })
                 events.addAll(renderVoice(kickPattern, startMs, durationMs, timeSignature, 9, 36, 95, 105, noteLengthMs = 100))
 
-                // Snare: beat 2 always; beat 4 in 4/4, or a softer beat 3 in 3/4
-                val snarePattern = parsePattern(
-                    if (is3) "____ <2>___ 3___" else "____ 2___ ____ 4___"
-                )
-                events.addAll(renderVoice(snarePattern, startMs, durationMs, timeSignature, 9, 38, if (is3) 90 else 95, 95, noteLengthMs = 100))
+                val snarePattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "____ <2>___ 3___"
+                    5 -> "____ x___ ____ ____ x___"
+                    else -> "____ 2___ ____ 4___"
+                })
+                events.addAll(renderVoice(snarePattern, startMs, durationMs, timeSignature, 9, 38, 95, 95, noteLengthMs = 100))
             }
-            Genre.BLUES -> {
-                val is3 = timeSignature.beatsPerBar == 3
 
-                // Shuffle ride/hat: accented hit on the beat, lighter hit on the shuffle "and"
-                val ridePattern = parsePattern(
-                    if (is3) "<x>_x<x>_x<x>_x" else "<x>_x<x>_x<x>_x<x>_x"
-                )
-                events.addAll(renderVoice(ridePattern, startMs, durationMs, timeSignature, 9, 42, 60, 75, ticksPerBeat = 3))
-
-                // Kick: beat 1 (accented); beat 3 too in 4/4
-                val kickPattern = parsePattern(
-                    if (is3) "<x>__ ___ ___" else "<x>__ ___ x__ ___"
-                )
-                events.addAll(renderVoice(kickPattern, startMs, durationMs, timeSignature, 9, 36, 90, 100, noteLengthMs = 100, ticksPerBeat = 3))
-
-                // Snare: beat 2 always; beat 4 in 4/4, or beat 3 in 3/4
-                val snarePattern = parsePattern(
-                    if (is3) "___ x__ x__" else "___ x__ ___ x__"
-                )
-                events.addAll(renderVoice(snarePattern, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 3))
-            }
             Genre.COUNTRY -> {
-                val is3 = timeSignature.beatsPerBar == 3
-
-                // "Boom-Chicka" hat: hit on every beat, ghost hit on the "&" of every beat
-                val hihatPattern = parsePattern(
-                    if (is3) "<1>_&_<2>_&_<3>_&_" else "<1>_&_<2>_&_<3>_&_<4>_&_"
-                )
+                val hihatPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<1>_&_<2>_&_<3>_&_"
+                    5 -> "<1>_&_<2>_&_<3>_&_<4>_&_<5>_&_"
+                    else -> "<1>_&_<2>_&_<3>_&_<4>_&_"
+                })
                 events.addAll(renderVoice(hihatPattern, startMs, durationMs, timeSignature, 9, 42, 50, 70))
 
-                // Kick: beat 1 always; beat 3 too in 4/4
-                val kickPattern = parsePattern(
-                    if (is3) "<1>___ ____ ____" else "<1>___ ____ 3___ ____"
-                )
+                val kickPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<1>___ ____ ____"
+                    5 -> "<1>___ ____ ____ x___ ____"
+                    else -> "<1>___ ____ 3___ ____"
+                })
                 events.addAll(renderVoice(kickPattern, startMs, durationMs, timeSignature, 9, 36, 95, 100, noteLengthMs = 100))
 
-                // Snare: "&" of beat 1, and "&" of beat 3 (4/4) or beat 2 (3/4)
-                val snarePattern = parsePattern(
-                    if (is3) "__&_ __&_ ____" else "__&_ ____ __&_ ____"
-                )
+                val snarePattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "__x_ ____ ____"
+                    5 -> "__x_ ____ ____ __x_ ____"
+                    else -> "__x_ ____ __x_ ____"
+                })
                 events.addAll(renderVoice(snarePattern, startMs, durationMs, timeSignature, 9, 38, 70, 70, noteLengthMs = 100))
             }
-            Genre.FUNK -> {
-                val is3 = timeSignature.beatsPerBar == 3
 
-                // Hi-hat: every 16th, accented on each downbeat
-                val hihatPattern = parsePattern(
-                    if (is3) "<1>xxx<2>xxx<3>xxx" else "<1>xxx<2>xxx<3>xxx<4>xxx"
-                )
+            Genre.FUNK -> {
+                val hihatPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<1>xxx<2>xxx<3>xxx"
+                    5 -> "<1>xxx<2>xxx<3>xxx<4>xxx<5>xxx"
+                    else -> "<1>xxx<2>xxx<3>xxx<4>xxx"
+                })
                 events.addAll(renderVoice(hihatPattern, startMs, durationMs, timeSignature, 9, 42, 50, 80, noteLengthMs = 40))
 
-                // Kick: beat 1 (accented), a pickup before beat 2, a syncopated late hit in beat 3
-                val kickPattern = parsePattern(
-                    if (is3) "<1>__x ____ __x_" else "<1>__x ____ __x_ ____"
-                )
+                val kickPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<1>__x ____ __x_"
+                    5 -> "<1>__x ____ __x_ ____ ____"
+                    else -> "<1>__x ____ __x_ ____"
+                })
                 events.addAll(renderVoice(kickPattern, startMs, durationMs, timeSignature, 9, 36, 85, 100, noteLengthMs = 100))
 
-                // Snare: beat 2, and the last beat of the bar
-                val snarePattern = parsePattern(
-                    if (is3) "____ x___ x___" else "____ x___ ____ x___"
-                )
+                val snarePattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "____ x___ x___"
+                    5 -> "____ x___ ____ x___ ____"
+                    else -> "____ x___ ____ x___"
+                })
                 events.addAll(renderVoice(snarePattern, startMs, durationMs, timeSignature, 9, 38, 100, 100, noteLengthMs = 100))
             }
-            Genre.JAZZ -> {
-                val is3 = timeSignature.beatsPerBar == 3
 
-                // Swing ride: accented hit on every beat, lighter "swing a" leading into each backbeat
-                val ridePattern = parsePattern(
-                    if (is3) "<x>_x<x>_x<x>__" else "<x>_x<x>__<x>_x<x>__"
-                )
+            Genre.BLUES -> {
+                val ridePattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<x>_x<x>_x<x>_x"
+                    5 -> "<x>_x<x>_x<x>_x<x>_x<x>_x"
+                    else -> "<x>_x<x>_x<x>_x<x>_x"
+                })
+                events.addAll(renderVoice(ridePattern, startMs, durationMs, timeSignature, 9, 42, 60, 75, ticksPerBeat = 3))
+
+                val kickPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<x>__ ___ ___"
+                    5 -> "<x>__ ___ x__ ___ ___"
+                    else -> "<x>__ ___ x__ ___"
+                })
+                events.addAll(renderVoice(kickPattern, startMs, durationMs, timeSignature, 9, 36, 90, 100, noteLengthMs = 100, ticksPerBeat = 3))
+
+                val snarePattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "___ x__ x__"
+                    5 -> "___ x__ ___ x__ ___"
+                    else -> "___ x__ ___ x__"
+                })
+                events.addAll(renderVoice(snarePattern, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 3))
+            }
+
+            Genre.JAZZ -> {
+                val ridePattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "<x>_x<x>_x<x>__"
+                    5 -> "<x>_x<x>__<x>_x<x>__<x>__"
+                    else -> "<x>_x<x>__<x>_x<x>__"
+                })
                 events.addAll(renderVoice(ridePattern, startMs, durationMs, timeSignature, 9, 51, 55, 70, noteLengthMs = 100, ticksPerBeat = 3))
 
-                // Hi-hat pedal on the backbeats (beats 2 & 4 in 4/4, beats 2 & 3 in 3/4)
-                val hihatPedalPattern = parsePattern(
-                    if (is3) "___ x__ x__" else "___ x__ ___ x__"
-                )
+                val hihatPedalPattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3 -> "___ x__ x__"
+                    5 -> "___ x__ ___ x__ ___"
+                    else -> "___ x__ ___ x__"
+                })
                 events.addAll(renderVoice(hihatPedalPattern, startMs, durationMs, timeSignature, 9, 44, 80, 80, noteLengthMs = 50, ticksPerBeat = 3))
             }
         }

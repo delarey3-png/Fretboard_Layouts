@@ -6,8 +6,14 @@ package com.example.fretboardlayouts.theory
  * convention: UPPERCASE = major-family, lowercase = minor-family,
  * "7" = seventh chord, "°"/"dim" = diminished.
  */
-data class ChordSlot(val degree: Int, val quality: ChordQuality, val romanLabel: String)
-
+data class ChordSlot(
+    val degree: Int,
+    val quality: ChordQuality,
+    val romanLabel: String,
+    val userQualityOverride: ChordQuality? = null
+) {
+    val effectiveQuality: ChordQuality get() = userQualityOverride ?: quality
+}
 private val ROMAN_TO_DEGREE = mapOf(
     "I" to 1, "i" to 1,
     "II" to 2, "ii" to 2,
@@ -17,19 +23,25 @@ private val ROMAN_TO_DEGREE = mapOf(
     "VI" to 6, "vi" to 6,
     "VII" to 7, "vii" to 7
 )
-
-/** Builds a ChordSlot from a roman numeral string like "I", "vi", "V7", "vii°" */
 fun chordSlot(roman: String): ChordSlot {
-    val base = roman.trimEnd('7', '°', '+')
+    val base = roman.trimEnd('7', '°', '+', '2', '4', '9')
+        .replace("sus", "").replace("add", "")
     val degree = ROMAN_TO_DEGREE[base] ?: error("Unknown roman numeral: $roman")
     val isLower = base[0].isLowerCase()
     val has7 = roman.contains("7")
     val isDim = roman.contains("°") || roman.contains("dim")
-    val isAug = roman.contains("+")
+    val isAug = roman.contains("+") || roman.contains("aug")
+    val isSus2 = roman.contains("sus2")
+    val isSus4 = roman.contains("sus4")
+    val is7Sus4 = roman.contains("7sus4")
 
     val quality = when {
+        is7Sus4 -> ChordQuality.DOMINANT7_SUS4
+        isSus2 -> ChordQuality.SUS2
+        isSus4 -> ChordQuality.SUS4
         isDim && has7 -> ChordQuality.MINOR7_FLAT5
         isDim -> ChordQuality.DIMINISHED
+        isAug && has7 -> ChordQuality.AUGMENTED7
         isAug -> ChordQuality.AUGMENTED
         has7 && !isLower -> ChordQuality.DOMINANT7
         has7 && isLower -> ChordQuality.MINOR7
@@ -63,9 +75,79 @@ object Progressions {
 
 /** Resolves a list of ChordSlots into actual chords for the given key */
 fun resolveProgression(key: MusicKey, slots: List<ChordSlot>): List<ResolvedChord> {
-    val diatonic = diatonicScalePitchClasses(key) // 7 notes
+    val diatonic = diatonicScalePitchClasses(key)
     return slots.map { slot ->
         val root = diatonic[(slot.degree - 1).coerceIn(0, 6)]
-        ResolvedChord(root, slot.quality, slot.romanLabel, slot.degree)
+        ResolvedChord(root, slot.effectiveQuality, slot.romanLabel, slot.degree)
+    }
+}
+fun validQualitiesForDegree(degree: Int, key: MusicKey): List<ChordQuality> {
+    val isMajorKey = !key.isMinor
+    return if (isMajorKey) {
+        when (degree) {
+            1 -> listOf(
+                ChordQuality.MAJOR, ChordQuality.MAJOR7, ChordQuality.MAJOR9,
+                ChordQuality.ADD9, ChordQuality.SIX, ChordQuality.SIX_NINE,
+                ChordQuality.SUS2, ChordQuality.SUS4
+            )
+            2 -> listOf(
+                ChordQuality.MINOR, ChordQuality.MINOR7, ChordQuality.MINOR9,
+                ChordQuality.DOMINANT7, ChordQuality.SUS2, ChordQuality.SUS4
+            )
+            3 -> listOf(
+                ChordQuality.MINOR, ChordQuality.MINOR7, ChordQuality.SUS4
+            )
+            4 -> listOf(
+                ChordQuality.MAJOR, ChordQuality.MAJOR7, ChordQuality.ADD9,
+                ChordQuality.SUS2, ChordQuality.SUS4, ChordQuality.DOMINANT7
+            )
+            5 -> listOf(
+                ChordQuality.MAJOR, ChordQuality.DOMINANT7, ChordQuality.DOMINANT9,
+                ChordQuality.DOMINANT11, ChordQuality.DOMINANT13,
+                ChordQuality.AUGMENTED, ChordQuality.AUGMENTED7,
+                ChordQuality.DOMINANT7_SUS4, ChordQuality.SUS2, ChordQuality.SUS4
+            )
+            6 -> listOf(
+                ChordQuality.MINOR, ChordQuality.MINOR7, ChordQuality.MINOR9,
+                ChordQuality.SUS2, ChordQuality.SUS4
+            )
+            7 -> listOf(
+                ChordQuality.DIMINISHED, ChordQuality.MINOR7_FLAT5,
+                ChordQuality.DIMINISHED7
+            )
+            else -> listOf(ChordQuality.MAJOR)
+        }
+    } else {
+        when (degree) {
+            1 -> listOf(
+                ChordQuality.MINOR, ChordQuality.MINOR7, ChordQuality.MINOR9,
+                ChordQuality.MINOR_MAJOR7, ChordQuality.MINOR_ADD9,
+                ChordQuality.SUS2, ChordQuality.SUS4
+            )
+            2 -> listOf(
+                ChordQuality.DIMINISHED, ChordQuality.MINOR7_FLAT5,
+                ChordQuality.MINOR, ChordQuality.MINOR7
+            )
+            3 -> listOf(
+                ChordQuality.MAJOR, ChordQuality.MAJOR7, ChordQuality.AUGMENTED
+            )
+            4 -> listOf(
+                ChordQuality.MINOR, ChordQuality.MINOR7,
+                ChordQuality.MAJOR, ChordQuality.DOMINANT7,
+                ChordQuality.SUS2, ChordQuality.SUS4
+            )
+            5 -> listOf(
+                ChordQuality.MINOR, ChordQuality.MINOR7,
+                ChordQuality.MAJOR, ChordQuality.DOMINANT7,
+                ChordQuality.DOMINANT9, ChordQuality.DOMINANT7_SUS4
+            )
+            6 -> listOf(
+                ChordQuality.MAJOR, ChordQuality.MAJOR7, ChordQuality.ADD9
+            )
+            7 -> listOf(
+                ChordQuality.MAJOR, ChordQuality.DOMINANT7, ChordQuality.DOMINANT9
+            )
+            else -> listOf(ChordQuality.MINOR)
+        }
     }
 }

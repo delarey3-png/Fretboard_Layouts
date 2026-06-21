@@ -47,7 +47,8 @@ data class JamTimeline(
     val events: List<TimelineEvent>,             // one full loop, in order
     val loopDurationMs: Long,
     val progressionLabels: List<String>,         // e.g. ["I", "V", "vi", "IV"] for the on-screen progression bar
-    val timeSignature: TimeSignature
+    val timeSignature: TimeSignature,
+    val cagedPositions: List<CagedPosition>  // NEW
 )
 
 /**
@@ -95,6 +96,7 @@ fun buildJamTimeline(
         events = events,
         loopDurationMs = currentMs,
         progressionLabels = progressionSlots.map { it.romanLabel },
-        timeSignature = timeSignature
+        timeSignature = timeSignature,
+        cagedPositions = cagedPositionsForKey(key)  // NEW
     )
 }

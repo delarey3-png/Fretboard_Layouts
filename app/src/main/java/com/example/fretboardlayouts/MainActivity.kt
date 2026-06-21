@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -80,6 +78,8 @@ import com.example.fretboardlayouts.theory.buildPresetOptions
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import androidx.compose.foundation.horizontalScroll  // NEW 21/06
+import androidx.compose.foundation.rememberScrollState  // NEW 21/06
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -382,9 +382,9 @@ fun PlaybackScreen(
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
-
+    val scrollState = rememberScrollState()  // NEW 21/06
     var elapsedTime by remember { mutableLongStateOf(0L) }
-    
+
     // The "Engine Room" - updates the clock every frame
     LaunchedEffect(Unit) {
         val startTime = withFrameMillis { it }
@@ -433,87 +433,93 @@ fun PlaybackScreen(
                 .height(200.dp)
         ) {
             val density = LocalDensity.current
-            val totalWidthPx = with(density) { maxWidth.toPx() }
+            val screenWidthPx = with(density) { maxWidth.toPx() }  // MODIFIED: renamed
             val heightPx = with(density) { maxHeight.toPx() }
             val nutZoneWidthPx = with(density) { NUT_ZONE_WIDTH_DP.dp.toPx() }
+            val fretboardAreaWidthPx = screenWidthPx - nutZoneWidthPx  // NEW
 
-            val sharedScale = remember(totalWidthPx, heightPx, nutZoneWidthPx) {
-                computeSharedScale(totalWidthPx - nutZoneWidthPx, heightPx)
+            // Scale calibrated so frets 0-12 fill the initial screen view
+            val scale = remember(screenWidthPx, heightPx, nutZoneWidthPx) {  // MODIFIED
+                computeSharedScale(fretboardAreaWidthPx, heightPx)
             }
 
-            val pagerState = rememberPagerState(pageCount = { 2 })
+            // NEW: Single geometry spanning the full neck (frets 0-24)
+            val geometry = remember(fretboardAreaWidthPx, heightPx, scale) {
+                FretboardGeometry(fretboardAreaWidthPx, heightPx, 0, 24, scale)
+            }
 
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                val startFret = if (page == 0) 0 else 12
-                val endFret = if (page == 0) 12 else 24
+            // NEW: Marker size — slightly smaller than before for better readability
+            val markerSize = geometry.stringSpacingPx(12) * 0.65f
 
-                FretboardPage(
-                    startFret = startFret,
-                    endFret = endFret,
-                    scale = sharedScale,
-                    nutZoneWidth = if (page == 0) NUT_ZONE_WIDTH_DP.dp else 0.dp,
-                    modifier = Modifier.fillMaxSize(),
-                    overlayContent = { geometry ->
-                        val markerSize = geometry.stringSpacingPx(geometry.endFret) * 0.75f // Slightly smaller
+            // NEW: Chord color computed once
+            val chordColor = when (currentEvent.chord.degree) {
+                1 -> Color(0xFF4CAF50)
+                4 -> Color(0xFFFF9800)
+                5 -> Color(0xFF2196F3)
+                2 -> Color(0xFFFFC107)
+                3 -> Color(0xFF009688)
+                6 -> Color(0xFF9C27B0)
+                else -> Color(0xFFE91E63)
+            }
 
-                        // 1. Draw Static Scale Overlay (Grey Boxes)
-                        timeline.scaleOverlay.filter { it.page == page }.forEach { pos ->
-                            if (pos.fret in (startFret + 1)..endFret) {
-                                val isKeyRoot = pos.pitchClass == timeline.key.rootPitchClass
-                                FretMarker(
-                                    position = geometry.markerPosition(pos.stringIndex, pos.fret),
-                                    diameterPx = markerSize,
-                                    color = if (isKeyRoot) Color(0xFF404040) else Color(0x66808080),
-                                    shape = MarkerShape.RoundedSquare,
-                                    showBorder = isKeyRoot
-                                )
-                            }
-                        }
+            // NEW: Total scrollable width = nut zone + full 24-fret board + pickup zone
+            val pickupZonePx = with(density) { 80.dp.toPx() }
+            val totalContentWidthDp = with(density) {
+                (nutZoneWidthPx + geometry.usedWidthPx + pickupZonePx).toDp()
+            }
 
-                        // 2. Draw Dynamic Chord Tone Overlay
-                        val chordColor = when(currentEvent.chord.degree) {
-                            1 -> Color(0xFF4CAF50) // Green
-                            4 -> Color(0xFFFF9800) // Orange
-                            5 -> Color(0xFF2196F3) // Blue
-                            2 -> Color(0xFFFFC107) // Amber/Yellow
-                            3 -> Color(0xFF009688) // Teal
-                            6 -> Color(0xFF9C27B0) // Purple
-                            else -> Color(0xFFE91E63) // Pink/Default
-                        }
+            // NEW: Outer scroll container — clips to screen width, scrolls content
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(scrollState)
+            ) {
+                // NEW: Inner content box — full scrollable width
+                Box(
+                    modifier = Modifier
+                        .width(totalContentWidthDp)
+                        .fillMaxHeight()
+                ) {
+                    // Open strings in nut zone
+                    currentEvent.chordToneOverlay.filter { it.fret == 0 }.forEach { pos ->
+                        FretMarker(
+                            position = Offset(
+                                x = nutZoneWidthPx / 2f,
+                                y = geometry.stringYAt(pos.stringIndex, 0f)
+                            ),
+                            diameterPx = markerSize,
+                            color = chordColor,
+                            shape = MarkerShape.Circle,
+                            text = NOTE_NAMES[pos.pitchClass],
+                            isBoldText = pos.isRoot
+                        )
+                    }
 
-                        currentEvent.chordToneOverlay.filter { it.page == page }.forEach { pos ->
-                            if (pos.fret in (startFret + 1)..endFret) {
-                                FretMarker(
-                                    position = geometry.markerPosition(pos.stringIndex, pos.fret),
-                                    diameterPx = markerSize,
-                                    color = chordColor,
-                                    shape = MarkerShape.Circle,
-                                    text = NOTE_NAMES[pos.pitchClass],
-                                    isBoldText = pos.isRoot
-                                )
-                            }
-                        }
-                    },
-                    openStringContent = { geometry, nutZonePx ->
-                        val markerSize = geometry.stringSpacingPx(geometry.startFret) * 0.75f // Slightly smaller
-                        
-                        val chordColor = when(currentEvent.chord.degree) {
-                            1 -> Color(0xFF4CAF50) // Green
-                            4 -> Color(0xFFFF9800) // Orange
-                            5 -> Color(0xFF2196F3) // Blue
-                            2 -> Color(0xFFFFC107) // Amber/Yellow
-                            3 -> Color(0xFF009688) // Teal
-                            6 -> Color(0xFF9C27B0) // Purple
-                            else -> Color(0xFFE91E63) // Pink/Default
-                        }
+                    // NEW: Fretboard canvas offset by nut zone width
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(nutZoneWidthPx.roundToInt(), 0) }
+                            .width(with(density) { geometry.usedWidthPx.toDp() })
+                            .fillMaxHeight()
+                    ) {
+                        FretboardCanvas(geometry = geometry, modifier = Modifier.fillMaxSize())
 
-                        // Open strings for the current chord
-                        currentEvent.chordToneOverlay.filter { it.fret == 0 }.forEach { pos ->
+                        // Scale overlay — all frets 1-24, no page filtering needed
+                        timeline.scaleOverlay.filter { it.fret > 0 }.forEach { pos ->
+                            val isKeyRoot = pos.pitchClass == timeline.key.rootPitchClass
                             FretMarker(
-                                position = Offset(
-                                    x = nutZonePx / 2f,
-                                    y = geometry.stringYAt(pos.stringIndex, 0f)
-                                ),
+                                position = geometry.markerPosition(pos.stringIndex, pos.fret),
+                                diameterPx = markerSize,
+                                color = if (isKeyRoot) Color(0xFF606060) else Color(0xAAFFFFFF), // MODIFIED: white boxes
+                                shape = MarkerShape.RoundedSquare,
+                                showBorder = isKeyRoot
+                            )
+                        }
+
+                        // Chord tone overlay — all frets 1-24
+                        currentEvent.chordToneOverlay.filter { it.fret > 0 }.forEach { pos ->
+                            FretMarker(
+                                position = geometry.markerPosition(pos.stringIndex, pos.fret),
                                 diameterPx = markerSize,
                                 color = chordColor,
                                 shape = MarkerShape.Circle,
@@ -522,9 +528,55 @@ fun PlaybackScreen(
                             )
                         }
                     }
-                )
+
+                    // NEW: Pickup zone visual — appears just past fret 24
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset((nutZoneWidthPx + geometry.usedWidthPx).roundToInt(), 0) }
+                            .width(80.dp)
+                            .fillMaxHeight()
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            // Guitar body (darker wood)
+                            drawRect(color = Color(0xFF1E0E04))
+
+                            // Body edge highlight suggesting the cutaway curve
+                            drawLine(
+                                color = Color(0xFF3A2012),
+                                start = Offset(0f, 0f),
+                                end = Offset(0f, size.height),
+                                strokeWidth = 6f
+                            )
+
+                            // Neck pickup outline
+                            val pWidth = size.width * 0.65f
+                            val pHeight = size.height * 0.38f
+                            val pX = (size.width - pWidth) / 2f
+                            val pY = (size.height - pHeight) / 2f
+
+                            drawRoundRect(
+                                color = Color(0xFF111111),
+                                topLeft = Offset(pX, pY),
+                                size = Size(pWidth, pHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f)
+                            )
+
+                            // Pickup pole pieces — one per string
+                            for (s in 0..5) {
+                                val poleY = geometry.stringYAt(s, geometry.usedWidthPx)
+                                drawCircle(
+                                    color = Color(0xFF888888),
+                                    radius = 5f,
+                                    center = Offset(size.width / 2f, poleY)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
+
+                        4
 
         Spacer(modifier = Modifier.height(16.dp))
         
