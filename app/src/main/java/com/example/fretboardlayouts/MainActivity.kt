@@ -122,19 +122,11 @@ class MainActivity : ComponentActivity() {
                         onJamClick = { viewModel.startGeneratingTrack() }
                     )
                     is AppState.Loading -> LoadingScreen(message = current.message)
-                    is AppState.Playback -> PlaybackScreen( // MODIFIED 21.06
+                    is AppState.Playback -> PlaybackScreen(
                         timeline = current.timeline,
                         onPlayChord = { time -> viewModel.playChord(current.timeline, time) },
                         onStopAudio = { viewModel.stopAudio() },
-                        onBackClick = { viewModel.resetToSetup() },
-                        liveScaleOverlay = viewModel.liveScaleOverlay, // NEW 21.06
-                        liveChordToneOverlay = viewModel.liveChordToneOverlay, // NEW 21.06
-                        scaleOverlayVisible = viewModel.scaleOverlayVisible.value, // NEW 21.06
-                        chordOverlayVisible = viewModel.chordOverlayVisible.value, // NEW 21.06
-                        liveScaleType = viewModel.liveScaleType.value, // NEW 21.06
-                        onScaleTypeChanged = { viewModel.liveScaleType.value = it }, // NEW 21.06
-                        onScaleOverlayToggled = { viewModel.scaleOverlayVisible.value = it }, // NEW 21.06
-                        onChordOverlayToggled = { viewModel.chordOverlayVisible.value = it } // NEW 21.06
+                        onBackClick = { viewModel.resetToSetup() }
                     )
                 }
             }
@@ -378,18 +370,9 @@ fun PlaybackScreen(
     timeline: JamTimeline,
     onPlayChord: (Long) -> Unit,
     onStopAudio: () -> Unit,
-    onBackClick: () -> Unit,
-    liveScaleOverlay: List<com.example.fretboardlayouts.theory.FretboardPosition>, // NEW 21.06
-    liveChordToneOverlay: List<com.example.fretboardlayouts.theory.ChordTonePosition>, // NEW 21.06
-    scaleOverlayVisible: Boolean, // NEW 21.06
-    chordOverlayVisible: Boolean, // NEW 21.06
-    liveScaleType: ScaleType, // NEW 21.06
-    onScaleTypeChanged: (ScaleType) -> Unit, // NEW 21.06
-    onScaleOverlayToggled: (Boolean) -> Unit, // NEW 21.06
-    onChordOverlayToggled: (Boolean) -> Unit // NEW 21.06
+    onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState() // NEW
 
     DisposableEffect(key1 = Unit) {
         val activity = context.findActivity()
@@ -399,9 +382,10 @@ fun PlaybackScreen(
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
-
+    val scrollState = rememberScrollState()  // NEW 21/06
     var elapsedTime by remember { mutableLongStateOf(0L) }
 
+    // The "Engine Room" - updates the clock every frame
     LaunchedEffect(Unit) {
         val startTime = withFrameMillis { it }
         while (true) {
@@ -413,8 +397,8 @@ fun PlaybackScreen(
     }
 
     val currentLoopTime = elapsedTime % timeline.loopDurationMs
-    val currentEvent = timeline.events.find {
-        currentLoopTime >= it.startMs && currentLoopTime < it.startMs + it.durationMs
+    val currentEvent = timeline.events.find { 
+        currentLoopTime >= it.startMs && currentLoopTime < it.startMs + it.durationMs 
     } ?: timeline.events.first()
 
     Column(
@@ -435,87 +419,39 @@ fun PlaybackScreen(
                 color = Color.White,
                 style = MaterialTheme.typography.headlineSmall
             )
+            
             Button(onClick = onBackClick) {
                 Text("Exit")
             }
         }
-
+        
         Spacer(modifier = Modifier.height(8.dp))
 
-// NEW: Mid-jam quick controls toolbar
-        Row(
-            modifier = Modifier.fillMaxWidth(), // NEW 21.06
-            horizontalArrangement = Arrangement.spacedBy(8.dp), // NEW 21.06
-            verticalAlignment = Alignment.CenterVertically // NEW 21.06
-        ) { // NEW 21.06
-            Text("Scale", color = Color.White, style = MaterialTheme.typography.labelSmall) // NEW 21.06
-            Switch( // NEW 21.06
-                checked = scaleOverlayVisible, // NEW 21.06
-                onCheckedChange = onScaleOverlayToggled, // NEW 21.06
-                modifier = Modifier.height(24.dp) // NEW 21.06
-            ) // NEW 21.06
-
-            Text("Chord", color = Color.White, style = MaterialTheme.typography.labelSmall) // NEW 21.06
-            Switch( // NEW 21.06
-                checked = chordOverlayVisible, // NEW 21.06
-                onCheckedChange = onChordOverlayToggled, // NEW 21.06
-                modifier = Modifier.height(24.dp) // NEW 21.06
-            ) // NEW 21.06
-
-            var scaleDropdownExpanded by remember { mutableStateOf(false) } // NEW 21.06
-            Box { // NEW 21.06
-                Text( // NEW 21.06
-                    text = liveScaleType.name, // NEW 21.06
-                    color = Color(0xFF90CAF9), // NEW 21.06
-                    style = MaterialTheme.typography.labelSmall, // NEW 21.06
-                    modifier = Modifier // NEW 21.06
-                        .clickable { scaleDropdownExpanded = true } // NEW 21.06
-                        .background(Color(0xFF333333), RoundedCornerShape(4.dp)) // NEW 21.06
-                        .padding(horizontal = 8.dp, vertical = 4.dp) // NEW 21.06
-                ) // NEW 21.06
-                DropdownMenu( // NEW 21.06
-                    expanded = scaleDropdownExpanded, // NEW 21.06
-                    onDismissRequest = { scaleDropdownExpanded = false } // NEW 21.06
-                ) { // NEW 21.06
-                    ScaleType.entries.forEach { scaleType -> // NEW 21.06
-                        DropdownMenuItem( // NEW 21.06
-                            text = { Text(scaleType.name) }, // NEW 21.06
-                            onClick = { // NEW 21.06
-                                onScaleTypeChanged(scaleType) // NEW 21.06
-                                scaleDropdownExpanded = false // NEW 21.06
-                            } // NEW 21.06
-                        ) // NEW 21.06
-                    } // NEW 21.06
-                } // NEW 21.06
-            } // NEW 21.06
-        } // NEW 21.06
-
-// NEW: Single continuous scroll fretboard 21.06
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
         ) {
             val density = LocalDensity.current
-            val screenWidthPx = with(density) { maxWidth.toPx() }
+            val screenWidthPx = with(density) { maxWidth.toPx() }  // MODIFIED: renamed
             val heightPx = with(density) { maxHeight.toPx() }
             val nutZoneWidthPx = with(density) { NUT_ZONE_WIDTH_DP.dp.toPx() }
-            val fretboardAreaWidthPx = screenWidthPx - nutZoneWidthPx
+            val fretboardAreaWidthPx = screenWidthPx - nutZoneWidthPx  // NEW
 
             // Scale calibrated so frets 0-12 fill the initial screen view
-            val scale = remember(screenWidthPx, heightPx, nutZoneWidthPx) {
+            val scale = remember(screenWidthPx, heightPx, nutZoneWidthPx) {  // MODIFIED
                 computeSharedScale(fretboardAreaWidthPx, heightPx)
             }
 
-            // Single geometry spanning full neck frets 0-24
+            // NEW: Single geometry spanning the full neck (frets 0-24)
             val geometry = remember(fretboardAreaWidthPx, heightPx, scale) {
                 FretboardGeometry(fretboardAreaWidthPx, heightPx, 0, 24, scale)
             }
 
-            // Slightly smaller markers for full-neck view
+            // NEW: Marker size — slightly smaller than before for better readability
             val markerSize = geometry.stringSpacingPx(12) * 0.65f
 
-            // Chord color computed once per chord
+            // NEW: Chord color computed once
             val chordColor = when (currentEvent.chord.degree) {
                 1 -> Color(0xFF4CAF50)
                 4 -> Color(0xFFFF9800)
@@ -526,24 +462,26 @@ fun PlaybackScreen(
                 else -> Color(0xFFE91E63)
             }
 
-            // Total scrollable width: nut zone + full board + pickup zone
+            // NEW: Total scrollable width = nut zone + full 24-fret board + pickup zone
             val pickupZonePx = with(density) { 80.dp.toPx() }
             val totalContentWidthDp = with(density) {
                 (nutZoneWidthPx + geometry.usedWidthPx + pickupZonePx).toDp()
             }
 
+            // NEW: Outer scroll container — clips to screen width, scrolls content
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .horizontalScroll(scrollState)
             ) {
+                // NEW: Inner content box — full scrollable width
                 Box(
                     modifier = Modifier
                         .width(totalContentWidthDp)
                         .fillMaxHeight()
                 ) {
-                    // Open string chord tones in nut zone
-                    liveChordToneOverlay.filter { it.fret == 0 }.forEach { pos -> // MODIFIED 21.06
+                    // Open strings in nut zone
+                    currentEvent.chordToneOverlay.filter { it.fret == 0 }.forEach { pos ->
                         FretMarker(
                             position = Offset(
                                 x = nutZoneWidthPx / 2f,
@@ -557,7 +495,7 @@ fun PlaybackScreen(
                         )
                     }
 
-                    // Fretboard canvas offset by nut zone
+                    // NEW: Fretboard canvas offset by nut zone width
                     Box(
                         modifier = Modifier
                             .offset { IntOffset(nutZoneWidthPx.roundToInt(), 0) }
@@ -566,20 +504,20 @@ fun PlaybackScreen(
                     ) {
                         FretboardCanvas(geometry = geometry, modifier = Modifier.fillMaxSize())
 
-                        // Scale overlay — white boxes, all frets 1-24 // MODIFIED 21.06
-                        liveScaleOverlay.filter { it.fret > 0 }.forEach { pos -> // MODIFIED 21.06
+                        // Scale overlay — all frets 1-24, no page filtering needed
+                        timeline.scaleOverlay.filter { it.fret > 0 }.forEach { pos ->
                             val isKeyRoot = pos.pitchClass == timeline.key.rootPitchClass
                             FretMarker(
                                 position = geometry.markerPosition(pos.stringIndex, pos.fret),
                                 diameterPx = markerSize,
-                                color = if (isKeyRoot) Color(0xFF606060) else Color(0xAAFFFFFF),
+                                color = if (isKeyRoot) Color(0xFF606060) else Color(0xAAFFFFFF), // MODIFIED: white boxes
                                 shape = MarkerShape.RoundedSquare,
                                 showBorder = isKeyRoot
                             )
                         }
 
-                        // Dynamic chord tone overlay — all frets 1-24 // MODIFIED 21.06
-                        liveChordToneOverlay.filter { it.fret > 0 }.forEach { pos -> // MODIFIED 21.06
+                        // Chord tone overlay — all frets 1-24
+                        currentEvent.chordToneOverlay.filter { it.fret > 0 }.forEach { pos ->
                             FretMarker(
                                 position = geometry.markerPosition(pos.stringIndex, pos.fret),
                                 diameterPx = markerSize,
@@ -591,7 +529,7 @@ fun PlaybackScreen(
                         }
                     }
 
-                    // Pickup zone — appears just past fret 24
+                    // NEW: Pickup zone visual — appears just past fret 24
                     Box(
                         modifier = Modifier
                             .offset { IntOffset((nutZoneWidthPx + geometry.usedWidthPx).roundToInt(), 0) }
@@ -599,10 +537,10 @@ fun PlaybackScreen(
                             .fillMaxHeight()
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            // Guitar body
+                            // Guitar body (darker wood)
                             drawRect(color = Color(0xFF1E0E04))
 
-                            // Body edge highlight
+                            // Body edge highlight suggesting the cutaway curve
                             drawLine(
                                 color = Color(0xFF3A2012),
                                 start = Offset(0f, 0f),
@@ -610,11 +548,12 @@ fun PlaybackScreen(
                                 strokeWidth = 6f
                             )
 
-                            // Pickup outline
+                            // Neck pickup outline
                             val pWidth = size.width * 0.65f
                             val pHeight = size.height * 0.38f
                             val pX = (size.width - pWidth) / 2f
                             val pY = (size.height - pHeight) / 2f
+
                             drawRoundRect(
                                 color = Color(0xFF111111),
                                 topLeft = Offset(pX, pY),
@@ -622,7 +561,7 @@ fun PlaybackScreen(
                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f)
                             )
 
-                            // Pickup pole pieces
+                            // Pickup pole pieces — one per string
                             for (s in 0..5) {
                                 val poleY = geometry.stringYAt(s, geometry.usedWidthPx)
                                 drawCircle(
@@ -637,9 +576,11 @@ fun PlaybackScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+                        4
 
-        // Progression visualizer
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Progression Visualizer
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
@@ -650,10 +591,7 @@ fun PlaybackScreen(
                     modifier = Modifier
                         .padding(horizontal = 4.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(
-                            if (isActive) MaterialTheme.colorScheme.primary
-                            else Color(0xFF333333)
-                        )
+                        .background(if (isActive) MaterialTheme.colorScheme.primary else Color(0xFF333333))
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
@@ -1013,15 +951,7 @@ fun PlaybackScreenPreview() {
             timeline = mockTimeline,
             onPlayChord = {},
             onStopAudio = {},
-            onBackClick = {},
-            liveScaleOverlay = mockTimeline.scaleOverlay, // NEW 21.06
-            liveChordToneOverlay = emptyList(), // NEW 21.06
-            scaleOverlayVisible = true, // NEW 21.06
-            chordOverlayVisible = true, // NEW 21.06
-            liveScaleType = ScaleType.PENTATONIC, // NEW 21.06
-            onScaleTypeChanged = {}, // NEW 21.06
-            onScaleOverlayToggled = {}, // NEW 21.06
-            onChordOverlayToggled = {} // NEW 21.06
+            onBackClick = {}
         )
     }
 }
