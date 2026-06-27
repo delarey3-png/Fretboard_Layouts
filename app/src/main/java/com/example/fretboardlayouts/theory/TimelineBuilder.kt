@@ -18,6 +18,7 @@ val TimeSignature.subdivisionCount: Int
 fun slotToMs(slot: Int, timeSignature: TimeSignature, durationMs: Long): Long {
     return (durationMs * slot) / timeSignature.subdivisionCount
 }
+
 /** Converts a beat index + triplet-within-beat (0, 1, 2) into a millisecond offset within the bar, for shuffle/swing feel. */
 fun tripletToMs(beat: Int, tripletInBeat: Int, timeSignature: TimeSignature, durationMs: Long): Long {
     val tripletsPerBar = timeSignature.beatsPerBar * 3
@@ -33,29 +34,25 @@ fun beatTickToMs(beat: Int, tickInBeat: Int, ticksPerBeat: Int, timeSignature: T
 
 /** Everything screen 2 needs to render + play ONE chord's worth of the jam */
 data class TimelineEvent(
-    val barIndex: Int,           // 0-based bar number within the loop
+    val barIndex: Int,
     val startMs: Long,
     val durationMs: Long,
     val chord: ResolvedChord,
     val chordToneOverlay: List<ChordTonePosition>
 )
 
-/** The fully precomputed jam session - built once during the 5s "build" screen */
+/** The fully precomputed jam session - built once during the loading screen */
 data class JamTimeline(
     val key: MusicKey,
-    val scaleOverlay: List<FretboardPosition>,   // constant grey boxes
-    val events: List<TimelineEvent>,             // one full loop, in order
+    val scaleOverlay: List<FretboardPosition>,
+    val events: List<TimelineEvent>,
     val loopDurationMs: Long,
-    val progressionLabels: List<String>,         // e.g. ["I", "V", "vi", "IV"] for the on-screen progression bar
-    val timeSignature: TimeSignature,
-    val cagedPositions: List<CagedPosition>  // NEW
+    val progressionLabels: List<String>,
+    val timeSignature: TimeSignature
 )
 
 /**
  * Builds the complete timeline for one loop of the progression.
- * The PLAYER is responsible for looping through [events] repeatedly
- * (or [loopRepeatCount] times, or until paused - that's a playback
- * concern, not a build concern).
  */
 fun buildJamTimeline(
     key: MusicKey,
@@ -96,7 +93,6 @@ fun buildJamTimeline(
         events = events,
         loopDurationMs = currentMs,
         progressionLabels = progressionSlots.map { it.romanLabel },
-        timeSignature = timeSignature,
-        cagedPositions = cagedPositionsForKey(key)  // NEW
+        timeSignature = timeSignature
     )
 }

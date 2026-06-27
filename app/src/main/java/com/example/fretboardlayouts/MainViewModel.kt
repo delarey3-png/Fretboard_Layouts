@@ -11,23 +11,26 @@ import com.example.fretboardlayouts.audio.GenreInstruments
 import com.example.fretboardlayouts.audio.MidiPlayer
 import com.example.fretboardlayouts.audio.StyleEngine
 import com.example.fretboardlayouts.theory.ChordOverlayMode
+import com.example.fretboardlayouts.theory.ChordTonePosition
+import com.example.fretboardlayouts.theory.FretboardPosition
 import com.example.fretboardlayouts.theory.Genre
 import com.example.fretboardlayouts.theory.JamTimeline
 import com.example.fretboardlayouts.theory.MusicKey
 import com.example.fretboardlayouts.theory.Progressions
 import com.example.fretboardlayouts.theory.ScaleType
+import com.example.fretboardlayouts.theory.StrumPreset
 import com.example.fretboardlayouts.theory.TimeSignature
+import com.example.fretboardlayouts.theory.allGuitarPresets
 import com.example.fretboardlayouts.theory.buildJamTimeline
-import com.example.fretboardlayouts.theory.pitchClassAt
+import com.example.fretboardlayouts.theory.buildPresetOptions
+import com.example.fretboardlayouts.theory.generateChordToneOverlay
+import com.example.fretboardlayouts.theory.generateScaleOverlay
+import com.example.fretboardlayouts.theory.overlayScalePitchClasses
+import com.example.fretboardlayouts.theory.resolveSelection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.example.fretboardlayouts.theory.StrumPreset
-import com.example.fretboardlayouts.theory.allGuitarPresets
-import com.example.fretboardlayouts.theory.resolveSelection
-import com.example.fretboardlayouts.theory.buildPresetOptions
-import com.example.fretboardlayouts.theory.PresetOption
 
 // 1. Define the possible screens/states of our app
 sealed class AppState {
@@ -52,15 +55,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var selectedGuitarPreset = mutableStateOf<StrumPreset?>(null)
     var customStrumMode = mutableStateOf(false)
 
+    // --- LIVE DISPLAY STATE (mid-jam, no rebuild needed) ---
+    var liveScaleType = mutableStateOf(ScaleType.PENTATONIC)
+    var liveOverlayMode = mutableStateOf(ChordOverlayMode.ALL_CHORD_TONES)
+    var scaleOverlayVisible = mutableStateOf(true)
+    var chordOverlayVisible = mutableStateOf(true)
+    var currentJamTimeline = mutableStateOf<JamTimeline?>(null)
+    var currentChordIndex = mutableStateOf(0)
+
+    // --- LIVE OVERLAY CALCULATIONS ---
+    val liveScaleOverlay: List<FretboardPosition>
+        get() {
+            val timeline = currentJamTimeline.value ?: return emptyList()
+            if (!scaleOverlayVisible.value) return emptyList()
+            return generateScaleOverlay(timeline.key, liveScaleType.value)
+        }
+
+    val liveChordToneOverlay: List<ChordTonePosition>
+        get() {
+            val timeline = currentJamTimeline.value ?: return emptyList()
+            if (!chordOverlayVisible.value) return emptyList()
+            val events = timeline.events
+            if (events.isEmpty()) return emptyList()
+            val currentEvent = events[currentChordIndex.value.coerceIn(0, events.size - 1)]
+            val scalePcs = overlayScalePitchClasses(timeline.key, liveScaleType.value)
+            return generateChordToneOverlay(currentEvent.chord, liveOverlayMode.value, scalePcs)
+        }
+
     // This holds the current screen state that Compose will watch
     var currentScreenState = mutableStateOf<AppState>(AppState.Setup)
         private set
 
-    // NEW: The pre-generated MIDI events for the current jam
+    // The pre-generated MIDI events for the current jam
     private var backingTrackEvents = listOf<BackingTrackGenerator.MidiNoteEvent>()
     private var lastSequencerLoopTime = -1L
 
-    // A list of your funny loading messages
+    // Loading messages
     private val loadingMessages = listOf(
         "Chop-chopping the mahogany for the fretboard...",
         "Tuning the bass player's E-string (takes a while)...",
@@ -70,56 +100,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startGeneratingTrack() {
         Log.i("MidiPlayer", ">>> START GENERATING TRACK - Genre: ${selectedGenre.value} <<<")
-        // Clear previous state before starting
         lastPlayedEventIndex = -1
         lastSequencerLoopTime = -1L
         backingTrackEvents = emptyList()
 
-        // Ensure state is at Setup before launching
         currentScreenState.value = AppState.Setup
         viewModelScope.launch {
-            // STEP A: Switch to Loading State
+            // Initialise live display state from setup selections
+            liveScaleType.value = selectedScaleOverlay.value
+            liveOverlayMode.value = selectedChordMode.value
+            scaleOverlayVisible.value = true
+            chordOverlayVisible.value = true
+            currentChordIndex.value = 0
+
             withContext(Dispatchers.Main) {
                 currentScreenState.value = AppState.Loading(loadingMessages.first())
             }
 
-            // STEP B: Simulate the heavy math/file loading on a background thread
-            // This is where we call our new Music Engine!
             val timeline = withContext(Dispatchers.Default) {
-                // Pre-build the timeline based on user settings
                 val builtTimeline = buildJamTimeline(
                     key = MusicKey.fromString(selectedKey.value),
-                    progressionSlots = Progressions.ALL[selectedProgression.value] ?: Progressions.ALL.values.first(),
+                    progressionSlots = Progressions.ALL[selectedProgression.value]
+                        ?: Progressions.ALL.values.first(),
                     scaleType = selectedScaleOverlay.value,
                     chordOverlayMode = selectedChordMode.value,
                     tempoBpm = selectedTempo.intValue,
                     timeSignature = selectedTimeSignature.value
                 )
 
-                // Still keep the funny messages for atmosphere
                 for (i in 1 until loadingMessages.size) {
-                    delay(800) // Reduced delay slightly for better UX
+                    delay(800)
                     withContext(Dispatchers.Main) {
                         currentScreenState.value = AppState.Loading(loadingMessages[i])
                     }
                 }
-                
+
                 builtTimeline
             }
+
+            // NOW timeline exists — safe to assign
+            currentJamTimeline.value = timeline
+
             val resolvedPreset = resolveSelection(
-                selectedGuitarPreset.value, allGuitarPresets, selectedGenre.value, selectedTimeSignature.value, customStrumMode.value
+                selectedGuitarPreset.value,
+                allGuitarPresets,
+                selectedGenre.value,
+                selectedTimeSignature.value,
+                customStrumMode.value
             ) ?: allGuitarPresets.first()
             selectedGuitarPreset.value = resolvedPreset
-            backingTrackEvents = StyleEngine.generateAccompaniment(timeline, selectedGenre.value, resolvedPreset)
-            
-            // Set up instruments for the MIDI path
+            backingTrackEvents = StyleEngine.generateAccompaniment(
+                timeline, selectedGenre.value, resolvedPreset
+            )
+
             if (midiPlayer.isMidiAvailable()) {
                 midiPlayer.setupInstruments(GenreInstruments.forGenre(selectedGenre.value))
             }
 
             lastSequencerLoopTime = -1L
 
-            // STEP C: Construction complete! Move to Screen 2 with the timeline
             withContext(Dispatchers.Main) {
                 currentScreenState.value = AppState.Playback(timeline)
             }
@@ -128,13 +167,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playChord(timeline: JamTimeline, currentTimeMs: Long) {
         val loopTime = currentTimeMs % timeline.loopDurationMs
-        
+
         // 1. DETERMINISTIC SEQUENCER
-        // Initialize at the start of playback
         if (lastSequencerLoopTime == -1L) {
             Log.i("MidiPlayer", ">>> SEQUENCER STARTING at ${loopTime}ms <<<")
             lastSequencerLoopTime = loopTime
-            // Play initial notes at time 0 if we just started
             if (loopTime < 100) {
                 backingTrackEvents.filter { it.timeMs == 0L }.forEach { event ->
                     midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
@@ -145,43 +182,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Handle loop wrap-around
         if (loopTime < lastSequencerLoopTime) {
             Log.i("MidiPlayer", ">>> LOOP WRAP DETECTED <<<")
-            // Catch events from last mark to end of loop
             backingTrackEvents.filter { it.timeMs > lastSequencerLoopTime }.forEach { event ->
                 midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
             }
-            lastSequencerLoopTime = -1L // Force start of next loop
+            lastSequencerLoopTime = -1L
         }
 
         // Standard frame check
-        backingTrackEvents.filter { it.timeMs > lastSequencerLoopTime && it.timeMs <= loopTime }.forEach { event ->
-            Log.i("MidiPlayer", "Sequencer triggering note: ch=${event.channel} pitch=${event.pitch}")
-            midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
-        }
+        backingTrackEvents
+            .filter { it.timeMs > lastSequencerLoopTime && it.timeMs <= loopTime }
+            .forEach { event ->
+                Log.i("MidiPlayer", "Sequencer triggering note: ch=${event.channel} pitch=${event.pitch}")
+                midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
+            }
         lastSequencerLoopTime = loopTime
 
-        // 2. Chord logic for UI synchronization (dots)
-        val currentEvent = timeline.events.find { 
-            currentTimeMs >= it.startMs && currentTimeMs < it.startMs + it.durationMs 
+        // 2. Chord index tracking for live overlay
+        val currentEvent = timeline.events.find {
+            currentTimeMs >= it.startMs && currentTimeMs < it.startMs + it.durationMs
         } ?: return
 
         val eventIndex = timeline.events.indexOf(currentEvent)
         if (eventIndex != lastPlayedEventIndex) {
             lastPlayedEventIndex = eventIndex
-            // UI trigger for visual sync if needed (currently dots are driven by 'currentEvent' in the Composable)
+            currentChordIndex.value = eventIndex
         }
     }
 
     fun stopAudio() {
         lastPlayedEventIndex = -1
         lastSequencerLoopTime = -1L
-        // We only want to stop the hardware, don't clear the backingTrackEvents list here
-        // as it might be needed if the screen recreates.
         midiPlayer.stopAllNotes()
     }
 
     fun resetToSetup() {
         stopAudio()
-        backingTrackEvents = emptyList() // Clear events only when explicitly exiting
+        backingTrackEvents = emptyList()
         currentScreenState.value = AppState.Setup
     }
 

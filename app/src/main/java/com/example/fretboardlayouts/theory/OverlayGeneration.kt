@@ -40,6 +40,7 @@ private val TRIAD_STRING_SETS = mapOf(
     ChordOverlayMode.TETRAD_STRINGS_2345 to setOf(1, 2, 3, 4),
     ChordOverlayMode.TETRAD_STRINGS_3456 to setOf(2, 3, 4, 5)
 )
+
 /** One highlighted chord-tone position, flagged with whether it sits inside the grey scale boxes */
 data class ChordTonePosition(
     val stringIndex: Int,
@@ -47,8 +48,10 @@ data class ChordTonePosition(
     val page: Int,
     val pitchClass: Int,
     val inScaleOverlay: Boolean,
-    val isRoot: Boolean
+    val isRoot: Boolean,
+    val intervalDegree: Int = 0  // reserved for future CAGED/interval display
 )
+
 /**
  * Generates the chord-tone overlay for ONE chord.
  * [scalePcs] is the same pitch-class set used for the grey boxes, so we can
