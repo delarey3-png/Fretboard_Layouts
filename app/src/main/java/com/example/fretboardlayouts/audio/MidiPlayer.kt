@@ -92,7 +92,7 @@ class MidiPlayer(private val context: Context) {
     }
 
     private fun copySoundFontToInternalStorage(): String? {
-        val fileName = "font.sf2"
+        val fileName = "Timbres of Heaven (XGM) 4.00(G).sf2"
         val destFile = File(context.filesDir, fileName)
         try {
             Log.i(TAG, "Checking SoundFont...")
@@ -184,14 +184,8 @@ class MidiPlayer(private val context: Context) {
     fun stopAllNotes() {
         if (isFluidSynthAvailable) {
             for (ch in 0..15) {
-                FluidSynthEngine.nativeProgramChange(ch, 0)
-            }
-        } else {
-            activeVoices.clear()
-            if (isHardwareMidiAvailable) {
-                for (ch in 0..15) {
-                    val buffer = byteArrayOf((0xB0 or ch).toByte(), 123.toByte(), 0.toByte())
-                    inputPort?.send(buffer, 0, 3)
+                for (note in 0..127) { // NEW — silence every possible note on every channel
+                    FluidSynthEngine.nativeNoteOff(ch, note) // NEW
                 }
             }
         }

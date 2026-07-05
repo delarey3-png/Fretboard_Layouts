@@ -6,11 +6,11 @@ import android.media.AudioTrack
 
 object FluidSynthEngine {
     init { System.loadLibrary("fluidsynth_jni") }
-
     private const val SAMPLE_RATE = 44100
     private var audioTrack: AudioTrack? = null
     private var renderThread: Thread? = null
     @Volatile private var running = false
+    @Volatile private var nativeInitialized = false  // NEW — track native init state
 
     external fun nativeInit(sampleRate: Int): Boolean
     external fun nativeLoadSoundFont(path: String): Int
@@ -20,10 +20,19 @@ object FluidSynthEngine {
     external fun nativeRender(buffer: ShortArray, numFrames: Int)
 
     fun start(sf2Path: String): Boolean {
-        if (!nativeInit(SAMPLE_RATE)) return false
-        val id = nativeLoadSoundFont(sf2Path)
-        if (id < 0) return false
+        // Check if thread is actually alive, not just flagged as running
+        if (running && renderThread?.isAlive == true) {
+            return true  // Real thread is running, reuse it
+        }
 
+        // Initialize native engine only once per process
+        if (!nativeInit(SAMPLE_RATE)) return false
+        nativeInitialized = true  // NEW — mark as initialized
+
+        val sfId = nativeLoadSoundFont(sf2Path)
+        if (sfId == -1) return false
+
+        // Create/restart audio thread (rest of function stays the same)
         val minBuf = AudioTrack.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
         )

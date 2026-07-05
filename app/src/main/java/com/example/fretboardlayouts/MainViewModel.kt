@@ -89,6 +89,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // The pre-generated MIDI events for the current jam
     private var backingTrackEvents = listOf<BackingTrackGenerator.MidiNoteEvent>()
     private var lastSequencerLoopTime = -1L
+    private data class PendingNoteOff(val channel: Int, val pitch: Int, val offAtMs: Long) // NEW
+    private val pendingNoteOffs = mutableListOf<PendingNoteOff>() // NEW
 
     // Loading messages
     private val loadingMessages = listOf(
@@ -103,6 +105,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         lastPlayedEventIndex = -1
         lastSequencerLoopTime = -1L
         backingTrackEvents = emptyList()
+        pendingNoteOffs.clear() // NEW
 
         currentScreenState.value = AppState.Setup
         viewModelScope.launch {
@@ -165,6 +168,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun triggerNoteOn(event: BackingTrackGenerator.MidiNoteEvent, atTimeMs: Long) { // NEW
+        midiPlayer.noteOn(event.channel, event.pitch, event.velocity) // NEW
+        pendingNoteOffs.add(PendingNoteOff(event.channel, event.pitch, atTimeMs + event.durationMs)) // NEW
+    } // NEW
+
     fun playChord(timeline: JamTimeline, currentTimeMs: Long) {
         val loopTime = currentTimeMs % timeline.loopDurationMs
 
@@ -174,7 +182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             lastSequencerLoopTime = loopTime
             if (loopTime < 100) {
                 backingTrackEvents.filter { it.timeMs == 0L }.forEach { event ->
-                    midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
+                    triggerNoteOn(event, currentTimeMs) // MODIFIED
                 }
             }
         }
@@ -183,7 +191,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (loopTime < lastSequencerLoopTime) {
             Log.i("MidiPlayer", ">>> LOOP WRAP DETECTED <<<")
             backingTrackEvents.filter { it.timeMs > lastSequencerLoopTime }.forEach { event ->
-                midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
+                triggerNoteOn(event, currentTimeMs) // MODIFIED
             }
             lastSequencerLoopTime = -1L
         }
@@ -193,13 +201,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it.timeMs > lastSequencerLoopTime && it.timeMs <= loopTime }
             .forEach { event ->
                 Log.i("MidiPlayer", "Sequencer triggering note: ch=${event.channel} pitch=${event.pitch}")
-                midiPlayer.noteOn(event.channel, event.pitch, event.velocity)
+                triggerNoteOn(event, currentTimeMs) // MODIFIED
             }
         lastSequencerLoopTime = loopTime
 
-        // 2. Chord index tracking for live overlay
+        // 2. Fire any note-offs that are due, so notes don't ring forever // NEW
+        if (pendingNoteOffs.isNotEmpty()) { // NEW
+            val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs } // NEW
+            if (dueOffs.isNotEmpty()) { // NEW
+                dueOffs.forEach { midiPlayer.noteOff(it.channel, it.pitch) } // NEW
+                pendingNoteOffs.removeAll(dueOffs) // NEW
+            } // NEW
+        } // NEW
+
+        // 3. Chord index tracking for live overlay
         val currentEvent = timeline.events.find {
-            currentTimeMs >= it.startMs && currentTimeMs < it.startMs + it.durationMs
+            loopTime >= it.startMs && loopTime < it.startMs + it.durationMs // MODIFIED (was currentTimeMs)
         } ?: return
 
         val eventIndex = timeline.events.indexOf(currentEvent)
@@ -212,6 +229,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopAudio() {
         lastPlayedEventIndex = -1
         lastSequencerLoopTime = -1L
+        pendingNoteOffs.forEach { midiPlayer.noteOff(it.channel, it.pitch) } // NEW — silence anything still ringing
+        pendingNoteOffs.clear() // NEW
         midiPlayer.stopAllNotes()
     }
 
