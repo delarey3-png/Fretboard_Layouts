@@ -310,11 +310,11 @@ class MainActivity : ComponentActivity() {
 
             OutlinedButton( // NEW
                 onClick = { // NEW
-                    context.startActivity(Intent(context, com.example.fretboardlayouts.TestingActivity::class.java)) // NEW
+                    context.startActivity(Intent(context, com.example.fretboardlayouts.JamLabActivity::class.java)) // NEW
                 }, // NEW
                 modifier = Modifier.fillMaxWidth() // NEW
             ) { // NEW
-                Text("Launch Testing Mode") // NEW
+                Text("\uD83E\uDDEA Jam Lab") // NEW
             } // NEW
         }
     }
