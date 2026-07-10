@@ -6,14 +6,17 @@ package com.example.fretboardlayouts.theory
  * convention: UPPERCASE = major-family, lowercase = minor-family,
  * "7" = seventh chord, "°"/"dim" = diminished.
  */
+// made by Gemini 27/06: Added rootOffset to support Lydian (#4), Mixolydian (b7), etc.
 data class ChordSlot(
     val degree: Int,
     val quality: ChordQuality,
     val romanLabel: String,
+    val rootOffset: Int = 0, // e.g. -1 for flat, +1 for sharp
     val userQualityOverride: ChordQuality? = null
 ) {
     val effectiveQuality: ChordQuality get() = userQualityOverride ?: quality
 }
+
 private val ROMAN_TO_DEGREE = mapOf(
     "I" to 1, "i" to 1,
     "II" to 2, "ii" to 2,
@@ -23,9 +26,24 @@ private val ROMAN_TO_DEGREE = mapOf(
     "VI" to 6, "vi" to 6,
     "VII" to 7, "vii" to 7
 )
+
+// made by Gemini 27/06: Upgraded parser to handle sharps, flats, and diminished symbols
 fun chordSlot(roman: String): ChordSlot {
-    val base = roman.trimEnd('7', '°', '+', '2', '4', '9')
+    var working = roman.trim()
+    var offset = 0
+    
+    // Handle b (flat) or # (sharp) prefix
+    if (working.startsWith('b')) {
+        offset = -1
+        working = working.substring(1)
+    } else if (working.startsWith('#')) {
+        offset = 1
+        working = working.substring(1)
+    }
+
+    val base = working.trimEnd('7', '°', '+', '2', '4', '9')
         .replace("sus", "").replace("add", "")
+    
     val degree = ROMAN_TO_DEGREE[base] ?: error("Unknown roman numeral: $roman")
     val isLower = base[0].isLowerCase()
     val has7 = roman.contains("7")
@@ -48,37 +66,51 @@ fun chordSlot(roman: String): ChordSlot {
         isLower -> ChordQuality.MINOR
         else -> ChordQuality.MAJOR
     }
-    return ChordSlot(degree, quality, roman)
+    return ChordSlot(degree, quality, roman, rootOffset = offset)
 }
 
 /** Convenience: build a progression from a list of roman numeral strings */
 private fun prog(vararg romans: String): List<ChordSlot> = romans.map { chordSlot(it) }
 
+// made by Gemini 27/06: Split progressions into Major/Minor categories
 object Progressions {
-    val ALL: Map<String, List<ChordSlot>> = mapOf(
-        "I-IV-VI" to prog("I", "IV", "VI"),
-        "I-V-vi-IV (Pop/Country/Rock)" to prog("I", "V", "vi", "IV"),
-        "I-IV-V (Western foundation)" to prog("I", "IV", "V"),
-        "I-vi-IV-V (50's Doo-Wop)" to prog("I", "vi", "IV", "V"),
-        "vi-IV-I-V" to prog("vi", "IV", "I", "V"),
-        "I-V-vi-iii-IV-I-IV-V" to prog("I", "V", "vi", "iii", "IV", "I", "IV", "V"),
-        "I-iii-IV-V" to prog("I", "iii", "IV", "V"),
-        "IV-V-I-vi" to prog("IV", "V", "I", "vi"),
+    val MAJOR: Map<String, List<ChordSlot>> = mapOf(
+        "I - V - vi - IV (Pop/Country/Rock)" to prog("I", "V", "vi", "IV"),
+        "I - IV - V (Western foundation)" to prog("I", "IV", "V"),
+        "I - vi - IV - V (50's Doo-Wop)" to prog("I", "vi", "IV", "V"),
+        "vi - IV - I - V" to prog("vi", "IV", "I", "V"),
+        "I - V - vi - iii - IV - I - IV - V" to prog("I", "V", "vi", "iii", "IV", "I", "IV", "V"),
+        "I - iii - IV - V" to prog("I", "iii", "IV", "V"),
+        "IV - V - I - vi" to prog("IV", "V", "I", "vi"),
         "12 Bar Blues" to prog(
             "I7", "I7", "I7", "I7",
             "IV7", "IV7", "I7", "I7",
             "V7", "IV7", "I7", "I7"
         )
-        // "Custom" handled separately in the UI layer - user builds their own List<ChordSlot>
     )
+
+    val MINOR: Map<String, List<ChordSlot>> = mapOf(
+        "i - VI - III - VII (Pop Minor)" to prog("i", "VI", "III", "VII"),
+        "i - bVII - bVI - V (Andalusian Cadence)" to prog("i", "bVII", "bVI", "V"),
+        "i - bIII - iv - VI (Natural Minor Climb)" to prog("i", "bIII", "iv", "VI"),
+        "ii° - V - I (Jazz Standard)" to prog("ii°", "V", "I"),
+        "i - iv - V (Classical / Blues Minor)" to prog("i", "iv", "V"),
+        "i - iv - V - iv (12 Bar Minor Blues)" to prog("i", "iv", "V", "iv")
+    )
+
+    val ALL: Map<String, List<ChordSlot>> = MAJOR + MINOR
 }
 
 /** Resolves a list of ChordSlots into actual chords for the given key */
+// made by Gemini 27/06: Upgraded to be modality-aware (Major vs Minor base scale)
 fun resolveProgression(key: MusicKey, slots: List<ChordSlot>): List<ResolvedChord> {
+    // Diatonic scale is already modality-aware (Major or Natural Minor)
     val diatonic = diatonicScalePitchClasses(key)
+    
     return slots.map { slot ->
-        val root = diatonic[(slot.degree - 1).coerceIn(0, 6)]
-        ResolvedChord(root, slot.effectiveQuality, slot.romanLabel, slot.degree)
+        val baseRoot = diatonic[(slot.degree - 1).coerceIn(0, 6)]
+        val finalRoot = (baseRoot + slot.rootOffset + 12) % 12
+        ResolvedChord(finalRoot, slot.effectiveQuality, slot.romanLabel, slot.degree)
     }
 }
 fun validQualitiesForDegree(degree: Int, key: MusicKey): List<ChordQuality> {

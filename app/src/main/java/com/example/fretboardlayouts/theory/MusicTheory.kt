@@ -1,7 +1,8 @@
 package com.example.fretboardlayouts.theory
 
 // Pitch classes 0-11, C=0, C#=1, D=2 ... B=11
-val NOTE_NAMES = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+// made by Gemini 27/06: Using guitarist-friendly names (Flats instead of some Sharps)
+val NOTE_NAMES = listOf("C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B")
 
 data class MusicKey(val rootPitchClass: Int, val isMinor: Boolean) {
     val name: String get() = NOTE_NAMES[rootPitchClass] + if (isMinor) " Minor" else " Major"
@@ -12,8 +13,12 @@ data class MusicKey(val rootPitchClass: Int, val isMinor: Boolean) {
             val parts = s.trim().split(" ")
             val rootName = parts[0]
             val isMinor = parts.getOrNull(1)?.equals("Minor", ignoreCase = true) == true
-            val root = NOTE_NAMES.indexOf(rootName.uppercase().replace("DB","C#").replace("EB","D#")
-                .replace("GB","F#").replace("AB","G#").replace("BB","A#"))
+            
+            // made by Gemini 27/06: Updated mapping to handle both sharps and flats for robust parsing
+            val root = NOTE_NAMES.indexOf(rootName.uppercase()
+                .replace("C#","Db").replace("D#","Eb")
+                .replace("F#","Gb").replace("G#","Ab")
+                .replace("A#","Bb"))
             require(root >= 0) { "Unknown root note: $rootName" }
             return MusicKey(root, isMinor)
         }

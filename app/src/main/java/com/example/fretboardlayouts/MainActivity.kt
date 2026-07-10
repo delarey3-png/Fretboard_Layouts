@@ -83,7 +83,13 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.res.painterResource
+
+import com.example.fretboardlayouts.theory.ProgressionOption
+import com.example.fretboardlayouts.theory.buildProgressionOptions
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -176,6 +182,22 @@ class MainActivity : ComponentActivity() {
     ) {
         val context = LocalContext.current // NEW
 
+        // made by Gemini 27/06: Get progression options based on modality
+        val currentKey = remember(selectedKey) { MusicKey.fromString(selectedKey) }
+        val progressionOptions = remember(currentKey) {
+            com.example.fretboardlayouts.theory.buildProgressionOptions(currentKey)
+        }
+
+        // made by Gemini 27/06: Auto-select first valid progression if current one becomes invalid
+        LaunchedEffect(currentKey) {
+            val currentValid =
+                progressionOptions.find { it.name == selectedProgression }?.enabled ?: false
+            if (!currentValid) {
+                val firstValid = progressionOptions.firstOrNull { it.enabled }
+                if (firstValid != null) onProgressionSelected(firstValid.name)
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -254,10 +276,11 @@ class MainActivity : ComponentActivity() {
                 Switch(checked = customStrumMode, onCheckedChange = onCustomStrumModeToggled)
             }
 
-            SetupDropdown(
+            // made by Gemini 27/06: Context-aware progression dropdown
+            ProgressionDropdown(
                 label = "Progression",
                 selected = selectedProgression,
-                options = Progressions.ALL.keys.toList(),
+                options = progressionOptions,
                 onSelected = onProgressionSelected
             )
 
@@ -301,21 +324,70 @@ class MainActivity : ComponentActivity() {
 
             Button(
                 onClick = onJamClick,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D00))
             ) {
-                Text("Start Jamming!", style = MaterialTheme.typography.titleLarge)
+                Icon(
+                    painter = painterResource(id=R.drawable.let_sjam__logo),
+                    contentDescription = "Let's Jam!",
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    tint = Color.Unspecified)
             }
 
             Spacer(modifier = Modifier.height(12.dp)) // NEW
 
-            OutlinedButton( // NEW
+            Button( // NEW
                 onClick = { // NEW
                     context.startActivity(Intent(context, com.example.fretboardlayouts.JamLabActivity::class.java)) // NEW
                 }, // NEW
-                modifier = Modifier.fillMaxWidth() // NEW
+                modifier = Modifier.fillMaxWidth().height(56.dp) // NEW Delarey 08/07 changed Let's Jam! Button size
             ) { // NEW
-                Text("\uD83E\uDDEA Jam Lab") // NEW
+                Text("\uD83E\uDDEA Jam Lab", style = MaterialTheme.typography.titleLarge) // NEW Delarey 08/07 button colour change attempt
             } // NEW
+        }
+    }
+
+    @Composable
+    fun ProgressionDropdown(
+        label: String,
+        selected: String,
+        options: List<ProgressionOption>,
+        onSelected: (String) -> Unit
+    ) {
+        var expanded by remember { mutableStateOf(false) }
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = true }
+                    .padding(vertical = 12.dp)
+            ) {
+                Text(selected, style = MaterialTheme.typography.bodyLarge)
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    options.forEach { option ->
+                        DropdownMenuItem(
+                            text = { 
+                                Text(
+                                    text = option.name,
+                                    color = if (option.enabled) Color.Unspecified else Color.Gray
+                                ) 
+                            },
+                            enabled = option.enabled,
+                            onClick = { onSelected(option.name); expanded = false }
+                        )
+                    }
+                }
+            }
+            HorizontalDivider()
         }
     }
 

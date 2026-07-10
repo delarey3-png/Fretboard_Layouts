@@ -49,3 +49,20 @@ fun resolveSelection(
             (customMode || isApplicable(currentPreset, genre))
     return if (stillValid) currentPreset else defaultPresetFor(allPresets, genre, timeSignature)
 }
+
+/** One row the progression dropdown can render: the name, plus whether it's currently selectable. */
+data class ProgressionOption(
+    val name: String,
+    val enabled: Boolean
+)
+
+/**
+ * made by Gemini 27/06: Builds the progression list for a given modality.
+ * If key is Major, only Major progressions are enabled.
+ */
+fun buildProgressionOptions(key: MusicKey): List<ProgressionOption> {
+    val isMinor = key.isMinor
+    val majorList = Progressions.MAJOR.keys.map { ProgressionOption(it, !isMinor) }
+    val minorList = Progressions.MINOR.keys.map { ProgressionOption(it, isMinor) }
+    return majorList + minorList
+}

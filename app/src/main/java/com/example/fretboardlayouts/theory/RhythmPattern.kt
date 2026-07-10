@@ -52,3 +52,51 @@ fun parseDirections(notation: String): List<Boolean> {
     val cleaned = notation.filter { it != ' ' && it != ',' }
     return cleaned.map { it != 'u' }
 }
+
+/**
+ * Parses a string of string indices (e.g. "5432") into a list of Integers.
+ * Assumes single digit indices 0-5. Non-digits are ignored.
+ */
+fun parseStrings(notation: String): List<Int> {
+    val cleaned = notation.filter { it != ' ' && it != ',' }
+    return cleaned.map { it.digitToIntOrNull() ?: -1 }
+}
+
+
+/**
+ * Data class representing a single slot in the visual strumming editor.
+ */
+data class VisualStrumAction(
+    val isHit: Boolean,
+    val isAccent: Boolean,
+    val isDown: Boolean,
+    val label: String
+)
+
+/**
+ * Helper to build the visual state for the strumming editor from a preset.
+ */
+fun buildVisualStrumState(preset: StrumPreset, timeSignature: TimeSignature): List<VisualStrumAction> {
+    val shape = timeSignature.shape()
+    val layer = preset.layers.firstOrNull() ?: return emptyList()
+    val patternStr = layer.patternByShape[shape] ?: ""
+    val directionStr = layer.directionsByShape[shape] ?: ""
+    
+    val pattern = parsePattern(patternStr)
+    val directions = parseDirections(directionStr)
+    
+    val ticksPerBeat = layer.ticksPerBeat
+    
+    return pattern.mapIndexed { index, state ->
+        val beat = index / ticksPerBeat
+        val tick = index % ticksPerBeat
+        val label = if (tick == 0) "${beat + 1}" else if (tick == 2 && ticksPerBeat == 4) "+" else ""
+        
+        VisualStrumAction(
+            isHit = state != SlotState.REST,
+            isAccent = state == SlotState.ACCENT,
+            isDown = directions.getOrNull(index) ?: true,
+            label = label
+        )
+    }
+}

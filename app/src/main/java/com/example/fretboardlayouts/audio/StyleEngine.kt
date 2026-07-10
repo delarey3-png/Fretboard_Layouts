@@ -8,6 +8,8 @@ import com.example.fretboardlayouts.theory.pitchClassAt
 import com.example.fretboardlayouts.theory.TimeSignature
 import com.example.fretboardlayouts.theory.parsePattern
 import com.example.fretboardlayouts.theory.StrumPreset
+import com.example.fretboardlayouts.theory.PickingPreset
+import com.example.fretboardlayouts.theory.shape
 
 /**
  * The "Band-in-a-Box" style engine.
@@ -39,7 +41,8 @@ object StyleEngine {
     fun generateAccompaniment(
         timeline: JamTimeline,
         genre: Genre,
-        guitarPreset: StrumPreset
+        guitarPreset: StrumPreset,
+        pickingPreset: PickingPreset? = null
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
@@ -51,11 +54,17 @@ object StyleEngine {
 
             allEvents.addAll(generateDrums(startMs, durationMs, genre, timeSignature))
             allEvents.addAll(generateBass(startMs, durationMs, chord, genre, timeSignature))
-            allEvents.addAll(generateGuitar(startMs, durationMs, chord, guitarPreset, timeSignature))
+            
+            if (pickingPreset != null && pickingPreset.layers.isNotEmpty()) {
+                allEvents.addAll(generateGuitarPicking(startMs, durationMs, chord, pickingPreset, timeSignature))
+            } else {
+                allEvents.addAll(generateGuitar(startMs, durationMs, chord, guitarPreset, timeSignature))
+            }
         }
 
         return allEvents.sortedBy { it.timeMs }
     }
+
 
     // ─── DRUMS ───────────────────────────────────────────────────────────────
 
@@ -274,6 +283,49 @@ object StyleEngine {
         val voicing = findGuitarVoicing(chord)
         return renderPreset(preset, voicing, startMs, durationMs, timeSignature, channel = 0)
     }
+
+    // made by Gemini 27/06
+    private fun generateGuitarPicking(
+        startMs: Long,
+        durationMs: Long,
+        chord: ResolvedChord,
+        preset: PickingPreset,
+        timeSignature: TimeSignature
+    ): List<BackingTrackGenerator.MidiNoteEvent> {
+        val voicing = findGuitarVoicing(chord)
+        // Note: renderPickingPreset doesn't exist yet, I'll use a logic similar to renderPreset but for strings
+        val shape = timeSignature.shape()
+        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+        
+        preset.layers.forEach { layer ->
+            val patternStr = layer.patternByShape[shape] ?: return@forEach
+            val stringsStr = layer.stringsByShape[shape] ?: return@forEach
+            
+            val pattern = parsePattern(patternStr)
+            val strings = com.example.fretboardlayouts.theory.parseStrings(stringsStr)
+            
+            pattern.forEachIndexed { tick, state ->
+                if (state == com.example.fretboardlayouts.theory.SlotState.REST) return@forEachIndexed
+                val velocity = if (state == com.example.fretboardlayouts.theory.SlotState.ACCENT) layer.accentVelocity else layer.normalVelocity
+                
+                val stringIdx = strings.getOrNull(tick) ?: return@forEachIndexed
+                if (stringIdx < 0 || stringIdx >= voicing.size) return@forEachIndexed
+                
+                val pitch = voicing[stringIdx]
+                val beat = tick / layer.ticksPerBeat
+                val tickInBeat = tick % layer.ticksPerBeat
+                
+                events.add(
+                    BackingTrackGenerator.MidiNoteEvent(
+                        startMs + com.example.fretboardlayouts.theory.beatTickToMs(beat, tickInBeat, layer.ticksPerBeat, timeSignature, durationMs),
+                        0, pitch, velocity, 200
+                    )
+                )
+            }
+        }
+        return events
+    }
+
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────
 

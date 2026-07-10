@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -53,9 +54,134 @@ import com.example.fretboardlayouts.theory.PresetOption
 import com.example.fretboardlayouts.theory.StrumPreset
 import com.example.fretboardlayouts.theory.allGuitarPresets
 import com.example.fretboardlayouts.theory.buildPresetOptions
+import com.example.fretboardlayouts.theory.buildVisualStrumState
+import com.example.fretboardlayouts.theory.VisualStrumAction
+import com.example.fretboardlayouts.theory.allPickingPresets
+import com.example.fretboardlayouts.theory.PickingPreset
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
+import com.example.fretboardlayouts.theory.ProgressionOption
+import com.example.fretboardlayouts.theory.buildProgressionOptions
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
+
+// made by Claude 08/07: Instrument role matrix definitions
+enum class InstrumentRole { OFF, STRUM_CHORD, PICK_ARPEGGIO, HYBRID }
+
+data class InstrumentDef(
+    val key: String,
+    val displayName: String,
+    val emoji: String,
+    val channel: Int,
+    val defaultRole: InstrumentRole = InstrumentRole.OFF,
+    val supportsPickArpeggio: Boolean = true,
+    val supportsHybrid: Boolean = true
+)
+
+val INSTRUMENT_DEFS = listOf(
+    InstrumentDef("guitar",  "Guitar",        "🎸", 0, InstrumentRole.STRUM_CHORD),
+    InstrumentDef("bass",    "Bass",           "🎸", 1, InstrumentRole.STRUM_CHORD),
+    InstrumentDef("drums",   "Drums",          "🥁", 9, InstrumentRole.STRUM_CHORD,
+        supportsPickArpeggio = false, supportsHybrid = false),
+    InstrumentDef("piano",   "Piano / Synth",  "🎹", 2),
+    InstrumentDef("strings", "Strings",        "🎻", 3),
+    InstrumentDef("winds",   "Winds / Brass",  "🎺", 4, supportsHybrid = false)
+)
+
+val INSTRUMENT_PROGRAMS = mapOf(
+    "guitar"  to listOf("Nylon" to 24, "Steel" to 25, "Jazz Elec" to 26,
+        "Clean" to 27, "Muted" to 28, "Overdrive" to 29, "Distortion" to 30),
+    "bass"    to listOf("Acoustic" to 32, "Fingered" to 33, "Picked" to 34,
+        "Fretless" to 35, "Slap" to 36),
+    "drums"   to listOf("Standard" to 0, "Room" to 8, "Power" to 16,
+        "Electronic" to 24, "TR-808" to 25, "Jazz" to 32,
+        "Brush" to 40, "Orchestra" to 48),
+    "piano"   to listOf("Grand Piano" to 0, "Bright Piano" to 1, "Electric Piano" to 4,
+        "Harpsichord" to 6, "Celesta" to 8, "Synth Pad" to 88,
+        "Synth Choir" to 91, "Bowed Glass" to 92),
+    "strings" to listOf("Violin" to 40, "Viola" to 41, "Cello" to 42,
+        "Contrabass" to 43, "Tremolo" to 44, "Pizzicato" to 45,
+        "Harp" to 46, "Timpani" to 47),
+    "winds"   to listOf("Flute" to 73, "Recorder" to 74, "Trumpet" to 56,
+        "Trombone" to 57, "Tuba" to 58, "French Horn" to 60,
+        "Alto Sax" to 65, "Soprano Sax" to 64)
+)
+
+/**
+ * Visual display for strumming patterns using arrows (Gemini 27/06)
+ */
+@Composable
+fun StrummingVisualDisplay(
+    preset: StrumPreset,
+    timeSignature: TimeSignature,
+    modifier: Modifier = Modifier
+) {
+    val visualState = remember(preset, timeSignature) { buildVisualStrumState(preset, timeSignature) }
+    
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        val ticksPerBeat = preset.layers.firstOrNull()?.ticksPerBeat ?: 4
+        
+        visualState.forEachIndexed { index, action ->
+            // Insert visual beat divider before every new beat (except the first)
+            if (index > 0 && index % ticksPerBeat == 0) {
+                Text(
+                    text = "|",
+                    color = Color.DarkGray,
+                    fontSize = 32.sp,
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .align(Alignment.CenterVertically)
+                )
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(32.dp)
+            ) {
+                // Accent Marker
+                Text(
+                    text = if (action.isAccent) ">" else " ",
+                    color = Color.Red,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                // Arrow
+                Text(
+                    text = if (!action.isHit) " " else if (action.isDown) "↓" else "↑",
+                    fontSize = 24.sp,
+                    color = if (action.isAccent) Color.Red else Color.White,
+                    fontWeight = if (action.isAccent) FontWeight.ExtraBold else FontWeight.Normal
+                )
+                
+                // Beat Label (1, +, 2, etc)
+                Text(
+                    text = action.label.ifEmpty { " " },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.Gray
+                )
+                
+                // D/U Text
+                Text(
+                    text = if (!action.isHit) " " else if (action.isDown) "D" else "U",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (action.isHit) Color.Red else Color.Transparent
+                )
+            }
+        }
+    }
+}
+
 
 /**
  * Jam Lab Activity — Sound Sandbox for testing genres and discovering presets.
@@ -91,12 +217,27 @@ fun JamLabScreen() {
     // ══ LOCAL STATE (completely independent from MainViewModel) ══
     var currentGenre by remember { mutableStateOf(Genre.ROCK) }
     var currentKey by remember { mutableStateOf("C Major") }
-    var currentProgression by remember { mutableStateOf("I-V-vi-IV (Pop/Country/Rock)") }
+    var currentProgression by remember { mutableStateOf("I - V - vi - IV (Pop/Country/Rock)") }
     var currentTempo by remember { mutableStateOf(100) }
     var currentTimeSignature by remember { mutableStateOf(TimeSignature.FOUR_FOUR) }
     var currentScale by remember { mutableStateOf(ScaleType.FULL) }
     var currentStrumPreset by remember { mutableStateOf(allGuitarPresets.firstOrNull() ?: allGuitarPresets[0]) }
+    var currentPickingPreset by remember { mutableStateOf(allPickingPresets[0]) }
     var customStrumMode by remember { mutableStateOf(false) }
+
+    // made by Gemini 27/06: Context-aware progression options
+    val currentKeyObj = remember(currentKey) { MusicKey.fromString(currentKey) }
+    val progressionOptions = remember(currentKeyObj) {
+        com.example.fretboardlayouts.theory.buildProgressionOptions(currentKeyObj)
+    }
+
+    // Auto-select valid progression
+    LaunchedEffect(currentKeyObj) {
+        val currentValid = progressionOptions.find { it.name == currentProgression }?.enabled ?: false
+        if (!currentValid) {
+            progressionOptions.firstOrNull { it.enabled }?.let { currentProgression = it.name }
+        }
+    }
 
     // Get filtered strum pattern options based on genre and custom mode
     val strumPatternOptions = remember(currentGenre, customStrumMode) {
@@ -109,6 +250,12 @@ fun JamLabScreen() {
     var isPlaying by remember { mutableStateOf(false) }
     var showGeneratingMessage by remember { mutableStateOf(false) }
     var currentTimeline by remember { mutableStateOf<JamTimeline?>(null) }
+
+    // made by Claude 08/07: Instrument role and panel state
+    var instrumentRoles by remember {
+        mutableStateOf(INSTRUMENT_DEFS.associate { it.key to it.defaultRole })
+    }
+    var selectedInstrumentKey by remember { mutableStateOf("guitar") }
 
     Column(
         modifier = Modifier
@@ -125,6 +272,7 @@ fun JamLabScreen() {
         )
 
         // ══ SETUP CONTROLS (A1 + A2 Combined) ══
+        // made by Gemini 27/06: converted selections to buttons
         Text("Genre", style = MaterialTheme.typography.labelSmall)
         SimpleDropdown(
             selected = currentGenre.displayName,
@@ -140,11 +288,10 @@ fun JamLabScreen() {
         SimpleDropdown(
             selected = currentKey,
             options = listOf(
-                "C Major", "C Minor", "G Major", "G Minor", "D Major", "D Minor",
-                "A Major", "A Minor", "E Major", "E Minor", "B Major", "B Minor",
-                "F# Major", "F# Minor", "F Major", "F Minor", "Bb Major", "Bb Minor",
-                "Eb Major", "Eb Minor", "Ab Major", "Ab Minor", "Db Major", "Db Minor",
-                "Gb Major", "Gb Minor", "C# Major", "C# Minor"
+                "C Major", "C Minor", "Db Major", "Db Minor", "D Major", "D Minor",
+                "Eb Major", "Eb Minor", "E Major", "E Minor", "F Major", "F Minor",
+                "Gb Major", "Gb Minor", "G Major", "G Minor", "Ab Major", "Ab Minor",
+                "A Major", "A Minor", "Bb Major", "Bb Minor", "B Major", "B Minor"
             ),
             onSelected = { currentKey = it },
             modifier = Modifier.fillMaxWidth()
@@ -152,9 +299,10 @@ fun JamLabScreen() {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text("Progression", style = MaterialTheme.typography.labelSmall)
-        SimpleDropdown(
-            selected = currentProgression.take(30) + (if (currentProgression.length > 30) "..." else ""),
-            options = Progressions.ALL.keys.toList(),
+        // made by Gemini 27/06: Modality-aware progression dropdown
+        SimpleProgressionDropdown(
+            selected = currentProgression,
+            options = progressionOptions,
             onSelected = { currentProgression = it },
             modifier = Modifier.fillMaxWidth()
         )
@@ -179,6 +327,27 @@ fun JamLabScreen() {
             selectedName = currentStrumPreset.name,
             onSelected = { currentStrumPreset = it },
             modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text("Picking Pattern", style = MaterialTheme.typography.labelSmall)
+        SimpleDropdown(
+            selected = currentPickingPreset.name,
+            options = allPickingPresets.map { it.name },
+            onSelected = { name ->
+                currentPickingPreset = allPickingPresets.find { it.name == name } ?: allPickingPresets[0]
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // NEW: Visual Strumming Arrow Display (Gemini 27/06)
+        StrummingVisualDisplay(
+            preset = currentStrumPreset,
+            timeSignature = currentTimeSignature,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp)
         )
 
         Row(
@@ -274,104 +443,50 @@ fun JamLabScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ══ INSTRUMENT GROUPS (A2 - Sound) ══
-        InstrumentGroupJamLab(
-            title = "🎸 Guitars (Ch 0)",
-            channel = 0,
-            instruments = listOf(
-                "Nylon" to 24, "Steel" to 25, "Jazz Electric" to 26,
-                "Clean" to 27, "Muted" to 28, "Overdriven" to 29, "Distortion" to 30
-            ),
-            selectedProgram = selectedProgramByChannel[0],
-            onSelect = { program ->
-                audioEngine.changeProgramOnChannel(0, program)
-                selectedProgramByChannel = selectedProgramByChannel + (0 to program)
-            }
-        )
+        // ══ INSTRUMENT MATRIX (made by Claude 08/07) ══
         Spacer(modifier = Modifier.height(12.dp))
+        Text("Instruments", style = MaterialTheme.typography.labelSmall)
+        Spacer(modifier = Modifier.height(6.dp))
 
-        InstrumentGroupJamLab(
-            title = "🎸 Bass (Ch 1)",
-            channel = 1,
-            instruments = listOf(
-                "Acoustic" to 32, "Fingered" to 33, "Picked" to 34,
-                "Fretless" to 35, "Slap" to 36
-            ),
-            selectedProgram = selectedProgramByChannel[1],
-            onSelect = { program ->
-                audioEngine.changeProgramOnChannel(1, program)
-                selectedProgramByChannel = selectedProgramByChannel + (1 to program)
-            }
+        InstrumentRoleMatrix(
+            instrumentRoles = instrumentRoles,
+            selectedKey = selectedInstrumentKey,
+            onRoleChanged = { key, role ->
+                instrumentRoles = instrumentRoles + (key to role)
+            },
+            onInstrumentSelected = { selectedInstrumentKey = it }
         )
-        Spacer(modifier = Modifier.height(12.dp))
 
-        InstrumentGroupJamLab(
-            title = "🥁 Drums (Ch 9)",
-            channel = 9,
-            instruments = listOf(
-                "Standard" to 0, "Room" to 8, "Power" to 16,
-                "Electronic" to 24, "TR-808" to 25, "Jazz" to 32, "Brush" to 40, "Orchestra" to 48
-            ),
-            selectedProgram = selectedProgramByChannel[9],
-            onSelect = { program ->
-                audioEngine.changeProgramOnChannel(9, program)
-                selectedProgramByChannel = selectedProgramByChannel + (9 to program)
-            }
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        InstrumentGroupJamLab(
-            title = "🎹 Keys & Pads (Ch 2)",
-            channel = 2,
-            instruments = listOf(
-                "Grand Piano" to 0, "Bright Piano" to 1, "Electric Piano" to 4,
-                "Harpsichord" to 6, "Celesta" to 8, "Synth Pad" to 88,
-                "Synth Choir" to 91, "Bowed Glass" to 92
-            ),
-            selectedProgram = selectedProgramByChannel[2],
-            onSelect = { program ->
-                audioEngine.changeProgramOnChannel(2, program)
-                selectedProgramByChannel = selectedProgramByChannel + (2 to program)
-            }
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+        val selectedDef = INSTRUMENT_DEFS.find { it.key == selectedInstrumentKey }
+        if (selectedDef != null) {
+            InstrumentPatternPanel(
+                instrumentKey = selectedInstrumentKey,
+                role = instrumentRoles[selectedInstrumentKey] ?: InstrumentRole.OFF,
+                strumOptions = strumPatternOptions,
+                selectedStrumPreset = currentStrumPreset,
+                onStrumSelected = { currentStrumPreset = it },
+                selectedPickingPreset = currentPickingPreset,
+                onPickingSelected = { currentPickingPreset = it },
+                selectedProgram = selectedProgramByChannel[selectedDef.channel],
+                onProgramSelected = { program ->
+                    selectedProgramByChannel = selectedProgramByChannel + (selectedDef.channel to program)
+                },
+                audioEngine = audioEngine
+            )
+        }
 
-        InstrumentGroupJamLab(
-            title = "🎻 Strings (Ch 3)",
-            channel = 3,
-            instruments = listOf(
-                "Violin" to 40, "Viola" to 41, "Cello" to 42, "Contrabass" to 43,
-                "Tremolo Strings" to 44, "Pizzicato Strings" to 45, "Harp" to 46, "Timpani" to 47
-            ),
-            selectedProgram = selectedProgramByChannel[3],
-            onSelect = { program ->
-                audioEngine.changeProgramOnChannel(3, program)
-                selectedProgramByChannel = selectedProgramByChannel + (3 to program)
-            }
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        InstrumentGroupJamLab(
-            title = "🎺 Winds (Ch 4)",
-            channel = 4,
-            instruments = listOf(
-                "Flute" to 73, "Recorder" to 74, "Trumpet" to 56,
-                "Trombone" to 57, "Tuba" to 58, "French Horn" to 60,
-                "Alto Sax" to 65, "Soprano Sax" to 64
-            ),
-            selectedProgram = selectedProgramByChannel[4],
-            onSelect = { program ->
-                audioEngine.changeProgramOnChannel(4, program)
-                selectedProgramByChannel = selectedProgramByChannel + (4 to program)
-            }
-        )
         Spacer(modifier = Modifier.height(20.dp))
 
         // ══ PLAYBACK LOOP (if playing) ══
         if (isPlaying && currentTimeline != null) {
             PlaybackLoopJamLabHandler(
                 timeline = currentTimeline!!,
-                audioEngine = audioEngine
+                audioEngine = audioEngine,
+                genre = currentGenre,
+                preset = currentStrumPreset,
+                pickingPreset = currentPickingPreset
             )
         }
     }
@@ -383,12 +498,19 @@ fun JamLabScreen() {
 @Composable
 private fun PlaybackLoopJamLabHandler(
     timeline: JamTimeline,
-    audioEngine: JamLabAudioEngine
+    audioEngine: JamLabAudioEngine,
+    genre: Genre,
+    preset: StrumPreset,
+    pickingPreset: PickingPreset?
 ) {
     var lastSequencerLoopTime by remember { mutableLongStateOf(-1L) }
     var pendingNoteOffs by remember { mutableStateOf(listOf<PendingNoteOff>()) }
 
-    val backingTrackEvents = remember { BackingTrackGenerator.generateLoopEvents(timeline) }
+    // MODIFIED: Use StyleEngine to respect presets and subdivisions (1e&a)
+    val backingTrackEvents = remember(timeline, genre, preset, pickingPreset) {
+        com.example.fretboardlayouts.audio.StyleEngine.generateAccompaniment(timeline, genre, preset, pickingPreset)
+    }
+
 
     LaunchedEffect(Unit) {
         val startTime = withFrameMillis { it }
@@ -495,78 +617,356 @@ private fun PresetDropdownJamLab(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(modifier = modifier.padding(vertical = 8.dp)) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true }
-                .padding(vertical = 12.dp)
-        ) {
-            Text(selectedName, style = MaterialTheme.typography.bodyLarge)
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.fillMaxWidth(0.8f)
-            ) {
-                options.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.preset.name) },
-                        enabled = option.enabled,
-                        onClick = { onSelected(option.preset); expanded = false }
-                    )
-                }
+
+    Button(onClick = { expanded = true }, modifier = modifier) {
+        Text(selectedName, maxLines = 1)
+    }
+
+    if (expanded) {
+        DropdownMenu(expanded = true, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = option.preset.name,
+                            color = if (option.enabled) Color.Unspecified else Color.Gray,
+                            fontSize = 11.sp
+                        )
+                    },
+                    enabled = option.enabled,
+                    onClick = {
+                        onSelected(option.preset)
+                        expanded = false
+                    }
+                )
             }
         }
-        HorizontalDivider()
     }
 }
 
 /**
- * Instrument group with horizontal scrolling buttons
- * Shows selected instrument in a different color
+ * Modality-aware progression dropdown for JamLab.
+ * Mirrors the ProgressionDropdown in MainActivity but uses the Button style
+ * consistent with other JamLab dropdowns.
+ * // made by Claude 08/07
  */
 @Composable
-private fun InstrumentGroupJamLab(
-    title: String,
-    channel: Int,
-    instruments: List<Pair<String, Int>>,
-    selectedProgram: Int?,
-    onSelect: (Int) -> Unit
+private fun SimpleProgressionDropdown(
+    selected: String,
+    options: List<ProgressionOption>,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.labelSmall)
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+    var expanded by remember { mutableStateOf(false) }
+    Button(onClick = { expanded = true }, modifier = modifier) {
+        Text(selected, maxLines = 1)
+    }
+    if (expanded) {
+        DropdownMenu(expanded = true, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = option.name,
+                            color = if (option.enabled) Color.Unspecified else Color.Gray,
+                            fontSize = 11.sp
+                        )
+                    },
+                    enabled = option.enabled,
+                    onClick = {
+                        onSelected(option.name)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+// made by Claude 08/07: Instrument role matrix
+@Composable
+private fun InstrumentRoleMatrix(
+    instrumentRoles: Map<String, InstrumentRole>,
+    selectedKey: String,
+    onRoleChanged: (String, InstrumentRole) -> Unit,
+    onInstrumentSelected: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+    ) {
+        // Header
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(vertical = 6.dp)
         ) {
-            items(instruments.size) { index ->
-                val (name, program) = instruments[index]
-                val isSelected = program == selectedProgram
+            Text("", modifier = Modifier.weight(2f))
+            listOf("Off", "Strum/Chord", "Pick/Arp", "Hybrid").forEach { label ->
+                Text(
+                    text = label,
+                    modifier = Modifier.weight(1f),
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        INSTRUMENT_DEFS.forEach { def ->
+            val role = instrumentRoles[def.key] ?: InstrumentRole.OFF
+            val isSelected = selectedKey == def.key
+            val isActive = role != InstrumentRole.OFF
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        else Color.Transparent
+                    )
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${def.emoji} ${def.displayName}",
+                    modifier = Modifier
+                        .weight(2f)
+                        .padding(start = 10.dp)
+                        .clickable { onInstrumentSelected(def.key) },
+                    fontSize = 11.sp,
+                    color = if (isActive) MaterialTheme.colorScheme.onSurface else Color.Gray,
+                    fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal
+                )
+                // Off
+                RoleRadio(
+                    selected = role == InstrumentRole.OFF,
+                    enabled = true,
+                    modifier = Modifier.weight(1f)
+                ) { onRoleChanged(def.key, InstrumentRole.OFF); onInstrumentSelected(def.key) }
+                // Strum/Chord
+                RoleRadio(
+                    selected = role == InstrumentRole.STRUM_CHORD,
+                    enabled = true,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    onRoleChanged(
+                        def.key,
+                        InstrumentRole.STRUM_CHORD
+                    ); onInstrumentSelected(def.key)
+                }
+                // Pick/Arpeggio
+                RoleRadio(
+                    selected = role == InstrumentRole.PICK_ARPEGGIO,
+                    enabled = def.supportsPickArpeggio,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    onRoleChanged(
+                        def.key,
+                        InstrumentRole.PICK_ARPEGGIO
+                    ); onInstrumentSelected(def.key)
+                }
+                // Hybrid
+                RoleRadio(
+                    selected = role == InstrumentRole.HYBRID,
+                    enabled = def.supportsHybrid,
+                    modifier = Modifier.weight(1f)
+                ) { onRoleChanged(def.key, InstrumentRole.HYBRID); onInstrumentSelected(def.key) }
+            }
+        }
+    }
+}
 
-                if (isSelected) {
-                    // Selected button — filled with primary color
-                    Button(
-                        onClick = { onSelect(program) },
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
-                    ) {
-                        Text(name, fontSize = 10.sp)
+@Composable
+private fun RoleRadio(
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        !enabled -> Color.Transparent
+                        selected -> MaterialTheme.colorScheme.primary
+                        else -> Color.Transparent
                     }
-                } else {
-                    // Unselected button — outlined style
-                    OutlinedButton(
-                        onClick = { onSelect(program) },
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
-                    ) {
-                        Text(name, fontSize = 10.sp)
+                )
+                .border(
+                    1.5.dp,
+                    when {
+                        !enabled -> Color.Gray.copy(alpha = 0.25f)
+                        selected -> MaterialTheme.colorScheme.primary
+                        else -> Color.Gray
+                    },
+                    CircleShape
+                )
+                .then(if (enabled) Modifier.clickable { onClick() } else Modifier),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+        }
+    }
+}
+
+// made by Claude 08/07: Pattern + sound panel for selected instrument
+@Composable
+private fun InstrumentPatternPanel(
+    instrumentKey: String,
+    role: InstrumentRole,
+    strumOptions: List<PresetOption>,
+    selectedStrumPreset: StrumPreset,
+    onStrumSelected: (StrumPreset) -> Unit,
+    selectedPickingPreset: PickingPreset,
+    onPickingSelected: (PickingPreset) -> Unit,
+    selectedProgram: Int?,
+    onProgramSelected: (Int) -> Unit,
+    audioEngine: JamLabAudioEngine
+) {
+    val def = INSTRUMENT_DEFS.find { it.key == instrumentKey } ?: return
+    val roleLabel = when (role) {
+        InstrumentRole.OFF -> "off"
+        InstrumentRole.STRUM_CHORD ->
+            if (instrumentKey in listOf("piano", "strings", "winds")) "chord patterns"
+            else "strum patterns"
+        InstrumentRole.PICK_ARPEGGIO ->
+            if (instrumentKey in listOf("piano", "strings", "winds")) "arpeggio patterns"
+            else "picking patterns"
+        InstrumentRole.HYBRID -> "hybrid patterns"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                0.5.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                RoundedCornerShape(8.dp)
+            )
+            .clip(RoundedCornerShape(8.dp))
+    ) {
+        // Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                .padding(horizontal = 12.dp, vertical = 7.dp)
+        ) {
+            Text(
+                text = "${def.emoji} ${def.displayName} — $roleLabel",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Column(modifier = Modifier.padding(10.dp)) {
+            // Pattern section
+            if (role == InstrumentRole.OFF) {
+                Text(
+                    "Select a role above to see patterns",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            } else {
+                Text("Pattern", fontSize = 10.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(4.dp))
+                when {
+                    instrumentKey == "guitar" && role == InstrumentRole.STRUM_CHORD -> {
+                        PresetDropdownJamLab(
+                            label = "Strum Pattern",
+                            options = strumOptions,
+                            selectedName = selectedStrumPreset.name,
+                            onSelected = onStrumSelected,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    instrumentKey == "guitar" && role == InstrumentRole.PICK_ARPEGGIO -> {
+                        SimpleDropdown(
+                            selected = selectedPickingPreset.name,
+                            options = allPickingPresets.map { it.name },
+                            onSelected = { name ->
+                                onPickingSelected(
+                                    allPickingPresets.find { it.name == name }
+                                        ?: allPickingPresets[0]
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    else -> {
+                        Text(
+                            "Patterns coming soon",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            // Sound / program selection — always visible
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Text("Sound", fontSize = 10.sp, color = Color.Gray,
+                modifier = Modifier.padding(bottom = 6.dp))
+            val programs = INSTRUMENT_PROGRAMS[instrumentKey] ?: emptyList()
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(programs.size) { index ->
+                    val (name, program) = programs[index]
+                    val isSelected = program == selectedProgram
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = program.toString().padStart(3, '0'),
+                                fontSize = 8.sp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        if (isSelected) {
+                            Button(
+                                onClick = {
+                                    audioEngine.changeProgramOnChannel(def.channel, program)
+                                    onProgramSelected(program)
+                                },
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+                            ) { Text(name, fontSize = 10.sp) }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    audioEngine.changeProgramOnChannel(def.channel, program)
+                                    onProgramSelected(program)
+                                },
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+                            ) { Text(name, fontSize = 10.sp) }
+                        }
                     }
                 }
             }
