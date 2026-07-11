@@ -10,6 +10,9 @@ import com.example.fretboardlayouts.theory.parsePattern
 import com.example.fretboardlayouts.theory.StrumPreset
 import com.example.fretboardlayouts.theory.PickingPreset
 import com.example.fretboardlayouts.theory.shape
+import com.example.fretboardlayouts.theory.HumanisationLevel // made by Claude 11/07
+import com.example.fretboardlayouts.theory.humanisationProfile // made by Claude 11/07
+import com.example.fretboardlayouts.theory.humaniseVelocity // made by Claude 11/07
 
 /**
  * The "Band-in-a-Box" style engine.
@@ -38,11 +41,12 @@ import com.example.fretboardlayouts.theory.shape
  */
 object StyleEngine {
 
-    fun generateAccompaniment(
+    fun generateAccompaniment( // made by Claude 11/07: added humanisation
         timeline: JamTimeline,
         genre: Genre,
         guitarPreset: StrumPreset,
-        pickingPreset: PickingPreset? = null
+        pickingPreset: PickingPreset? = null,
+        humanisationLevel: HumanisationLevel = HumanisationLevel.OFF
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
@@ -62,7 +66,21 @@ object StyleEngine {
             }
         }
 
-        return allEvents.sortedBy { it.timeMs }
+        // made by Claude 11/07: Apply humanisation as post-processing step
+        // Accent threshold >= 95 matches kick/accent velocities in all genre patterns
+        // Each instrument rolls independently — same setting, different feel per channel
+        if (humanisationLevel == HumanisationLevel.OFF) return allEvents
+        val humanProfile = humanisationProfile(humanisationLevel)
+        return allEvents.map { event ->
+            val isAccent = event.velocity >= 95
+            val humanisedVelocity = humaniseVelocity(
+                baseVelocity = event.velocity,
+                channel = event.channel,
+                isAccent = isAccent,
+                profile = humanProfile
+            )
+            event.copy(velocity = humanisedVelocity)
+        }
     }
 
 

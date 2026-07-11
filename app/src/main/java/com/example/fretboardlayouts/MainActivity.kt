@@ -90,6 +90,8 @@ import androidx.compose.ui.res.painterResource
 
 import com.example.fretboardlayouts.theory.ProgressionOption
 import com.example.fretboardlayouts.theory.buildProgressionOptions
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.PaddingValues
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -324,14 +326,21 @@ class MainActivity : ComponentActivity() {
 
             Button(
                 onClick = onJamClick,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D00))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D00)),
+                contentPadding = PaddingValues(0.dp) // Removes default button padding so the logo can fill the height nicely
             ) {
-                Icon(
-                    painter = painterResource(id=R.drawable.let_sjam__logo),
+                Image(
+                    painter = painterResource(id = R.drawable.lets_jam_logo),
                     contentDescription = "Let's Jam!",
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    tint = Color.Unspecified)
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        // ButtonDefaults.shape ensures the image clips perfectly to the button's rounded corners
+                        .clip(ButtonDefaults.shape)
+                        .padding(vertical = 4.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp)) // NEW

@@ -1,28 +1,33 @@
 package com.example.fretboardlayouts
 
+import android.R
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -38,40 +43,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.fretboardlayouts.audio.BackingTrackGenerator
 import com.example.fretboardlayouts.audio.JamLabAudioEngine
+import com.example.fretboardlayouts.theory.ChordOverlayMode
 import com.example.fretboardlayouts.theory.Genre
+import com.example.fretboardlayouts.theory.HumanisationLevel
 import com.example.fretboardlayouts.theory.JamTimeline
 import com.example.fretboardlayouts.theory.MusicKey
-import com.example.fretboardlayouts.theory.Progressions
-import com.example.fretboardlayouts.theory.ScaleType
-import com.example.fretboardlayouts.theory.TimeSignature
-import com.example.fretboardlayouts.theory.buildJamTimeline
 import com.example.fretboardlayouts.theory.PresetOption
-import com.example.fretboardlayouts.theory.StrumPreset
-import com.example.fretboardlayouts.theory.allGuitarPresets
-import com.example.fretboardlayouts.theory.buildPresetOptions
-import com.example.fretboardlayouts.theory.buildVisualStrumState
-import com.example.fretboardlayouts.theory.VisualStrumAction
-import com.example.fretboardlayouts.theory.allPickingPresets
+import com.example.fretboardlayouts.theory.Progressions
+import com.example.fretboardlayouts.theory.ProgressionOption
 import com.example.fretboardlayouts.theory.PickingPreset
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import com.example.fretboardlayouts.theory.ScaleType
+import com.example.fretboardlayouts.theory.StrumPreset
+import com.example.fretboardlayouts.theory.TimeSignature
+import com.example.fretboardlayouts.theory.VisualStrumAction
+import com.example.fretboardlayouts.theory.allGuitarPresets
+import com.example.fretboardlayouts.theory.allPickingPresets
+import com.example.fretboardlayouts.theory.buildJamTimeline
+import com.example.fretboardlayouts.theory.buildPresetOptions
+import com.example.fretboardlayouts.theory.buildProgressionOptions
+import com.example.fretboardlayouts.theory.buildVisualStrumState
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
-import com.example.fretboardlayouts.theory.ProgressionOption
-import com.example.fretboardlayouts.theory.buildProgressionOptions
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextAlign
 
-// made by Claude 08/07: Instrument role matrix definitions
+// ================================================================
+// TOP-LEVEL DEFINITIONS
+// made by Claude 10/07: Instrument role matrix definitions
+// ================================================================
+
 enum class InstrumentRole { OFF, STRUM_CHORD, PICK_ARPEGGIO, HYBRID }
 
 data class InstrumentDef(
@@ -85,54 +91,67 @@ data class InstrumentDef(
 )
 
 val INSTRUMENT_DEFS = listOf(
-    InstrumentDef("guitar",  "Guitar",        "🎸", 0, InstrumentRole.STRUM_CHORD),
-    InstrumentDef("bass",    "Bass",           "🎸", 1, InstrumentRole.STRUM_CHORD),
-    InstrumentDef("drums",   "Drums",          "🥁", 9, InstrumentRole.STRUM_CHORD,
+    InstrumentDef("guitar",  "Guitar",       "🎸", 0, InstrumentRole.STRUM_CHORD),
+    InstrumentDef("bass",    "Bass",          "🎸", 1, InstrumentRole.STRUM_CHORD),
+    InstrumentDef("drums",   "Drums",         "🥁", 9, InstrumentRole.STRUM_CHORD,
         supportsPickArpeggio = false, supportsHybrid = false),
-    InstrumentDef("piano",   "Piano / Synth",  "🎹", 2),
-    InstrumentDef("strings", "Strings",        "🎻", 3),
-    InstrumentDef("winds",   "Winds / Brass",  "🎺", 4, supportsHybrid = false)
+    InstrumentDef("piano",   "Piano / Synth", "🎹", 2),
+    InstrumentDef("strings", "Strings",       "🎻", 3),
+    InstrumentDef("winds",   "Winds / Brass", "🎺", 4, supportsHybrid = false)
 )
 
 val INSTRUMENT_PROGRAMS = mapOf(
-    "guitar"  to listOf("Nylon" to 24, "Steel" to 25, "Jazz Elec" to 26,
-        "Clean" to 27, "Muted" to 28, "Overdrive" to 29, "Distortion" to 30),
-    "bass"    to listOf("Acoustic" to 32, "Fingered" to 33, "Picked" to 34,
-        "Fretless" to 35, "Slap" to 36),
-    "drums"   to listOf("Standard" to 0, "Room" to 8, "Power" to 16,
+    "guitar"  to listOf(
+        "Nylon" to 24, "Steel" to 25, "Jazz Elec" to 26,
+        "Clean" to 27, "Muted" to 28, "Overdrive" to 29, "Distortion" to 30
+    ),
+    "bass"    to listOf(
+        "Acoustic" to 32, "Fingered" to 33, "Picked" to 34,
+        "Fretless" to 35, "Slap" to 36
+    ),
+    "drums"   to listOf(
+        "Standard" to 0, "Room" to 8, "Power" to 16,
         "Electronic" to 24, "TR-808" to 25, "Jazz" to 32,
-        "Brush" to 40, "Orchestra" to 48),
-    "piano"   to listOf("Grand Piano" to 0, "Bright Piano" to 1, "Electric Piano" to 4,
+        "Brush" to 40, "Orchestra" to 48
+    ),
+    "piano"   to listOf(
+        "Grand Piano" to 0, "Bright Piano" to 1, "Electric Piano" to 4,
         "Harpsichord" to 6, "Celesta" to 8, "Synth Pad" to 88,
-        "Synth Choir" to 91, "Bowed Glass" to 92),
-    "strings" to listOf("Violin" to 40, "Viola" to 41, "Cello" to 42,
+        "Synth Choir" to 91, "Bowed Glass" to 92
+    ),
+    "strings" to listOf(
+        "Violin" to 40, "Viola" to 41, "Cello" to 42,
         "Contrabass" to 43, "Tremolo" to 44, "Pizzicato" to 45,
-        "Harp" to 46, "Timpani" to 47),
-    "winds"   to listOf("Flute" to 73, "Recorder" to 74, "Trumpet" to 56,
+        "Harp" to 46, "Timpani" to 47
+    ),
+    "winds"   to listOf(
+        "Flute" to 73, "Recorder" to 74, "Trumpet" to 56,
         "Trombone" to 57, "Tuba" to 58, "French Horn" to 60,
-        "Alto Sax" to 65, "Soprano Sax" to 64)
+        "Alto Sax" to 65, "Soprano Sax" to 64
+    )
 )
 
-/**
- * Visual display for strumming patterns using arrows (Gemini 27/06)
- */
+// ================================================================
+// VISUAL STRUMMING DISPLAY
+// made by Gemini 27/06
+// ================================================================
+
 @Composable
 fun StrummingVisualDisplay(
     preset: StrumPreset,
     timeSignature: TimeSignature,
     modifier: Modifier = Modifier
 ) {
-    val visualState = remember(preset, timeSignature) { buildVisualStrumState(preset, timeSignature) }
-    
+    val visualState = remember(preset, timeSignature) {
+        buildVisualStrumState(preset, timeSignature)
+    }
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Bottom
     ) {
         val ticksPerBeat = preset.layers.firstOrNull()?.ticksPerBeat ?: 4
-        
         visualState.forEachIndexed { index, action ->
-            // Insert visual beat divider before every new beat (except the first)
             if (index > 0 && index % ticksPerBeat == 0) {
                 Text(
                     text = "|",
@@ -143,35 +162,27 @@ fun StrummingVisualDisplay(
                         .align(Alignment.CenterVertically)
                 )
             }
-
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.width(32.dp)
             ) {
-                // Accent Marker
                 Text(
                     text = if (action.isAccent) ">" else " ",
                     color = Color.Red,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold
                 )
-                
-                // Arrow
                 Text(
                     text = if (!action.isHit) " " else if (action.isDown) "↓" else "↑",
                     fontSize = 24.sp,
                     color = if (action.isAccent) Color.Red else Color.White,
                     fontWeight = if (action.isAccent) FontWeight.ExtraBold else FontWeight.Normal
                 )
-                
-                // Beat Label (1, +, 2, etc)
                 Text(
                     text = action.label.ifEmpty { " " },
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.Gray
                 )
-                
-                // D/U Text
                 Text(
                     text = if (!action.isHit) " " else if (action.isDown) "D" else "U",
                     style = MaterialTheme.typography.labelSmall,
@@ -182,15 +193,13 @@ fun StrummingVisualDisplay(
     }
 }
 
+// ================================================================
+// ACTIVITY
+// ================================================================
 
 /**
  * Jam Lab Activity — Sound Sandbox for testing genres and discovering presets.
- *
- * Completely standalone, independent from MainViewModel:
- * - Own local state for all settings
- * - Own audio pipeline via JamLabAudioEngine
- * - Can test sound combinations without affecting Jam screen
- * - Safe to enter and exit without corrupting shared audio state
+ * Completely standalone, independent from MainViewModel.
  */
 class JamLabActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -203,12 +212,10 @@ class JamLabActivity : ComponentActivity() {
     }
 }
 
-/**
- * Jam Lab Screen — A-2 Sound Sandbox
- *
- * Same playback capability as Jam screen, but without the fretboard visual.
- * Users can change audio settings freely, reset on sync loss, and save presets.
- */
+// ================================================================
+// JAM LAB SCREEN
+// ================================================================
+
 @Composable
 fun JamLabScreen() {
     val context = LocalContext.current
@@ -221,37 +228,37 @@ fun JamLabScreen() {
     var currentTempo by remember { mutableStateOf(100) }
     var currentTimeSignature by remember { mutableStateOf(TimeSignature.FOUR_FOUR) }
     var currentScale by remember { mutableStateOf(ScaleType.FULL) }
-    var currentStrumPreset by remember { mutableStateOf(allGuitarPresets.firstOrNull() ?: allGuitarPresets[0]) }
+    var currentStrumPreset by remember { mutableStateOf(allGuitarPresets[0]) }
     var currentPickingPreset by remember { mutableStateOf(allPickingPresets[0]) }
     var customStrumMode by remember { mutableStateOf(false) }
-
+    var currentNoteLength by remember { mutableStateOf("1/4") }
+    var currentHumanisation by remember { mutableStateOf(HumanisationLevel.OFF) } // made by Claude 11/07
+    // made by Claude 11/07: Tracks current bar for progression display
+    var currentBarIndex by remember { mutableStateOf(0) }
     // made by Gemini 27/06: Context-aware progression options
     val currentKeyObj = remember(currentKey) { MusicKey.fromString(currentKey) }
     val progressionOptions = remember(currentKeyObj) {
-        com.example.fretboardlayouts.theory.buildProgressionOptions(currentKeyObj)
+        buildProgressionOptions(currentKeyObj)
     }
 
-    // Auto-select valid progression
     LaunchedEffect(currentKeyObj) {
-        val currentValid = progressionOptions.find { it.name == currentProgression }?.enabled ?: false
+        val currentValid =
+            progressionOptions.find { it.name == currentProgression }?.enabled ?: false
         if (!currentValid) {
             progressionOptions.firstOrNull { it.enabled }?.let { currentProgression = it.name }
         }
     }
 
-    // Get filtered strum pattern options based on genre and custom mode
-    val strumPatternOptions = remember(currentGenre, customStrumMode) {
+    val strumPatternOptions = remember(currentGenre, customStrumMode, currentTimeSignature) {
         buildPresetOptions(allGuitarPresets, currentGenre, currentTimeSignature, customStrumMode)
     }
 
-    // Track selected program per channel for visual feedback
     var selectedProgramByChannel by remember { mutableStateOf(mapOf<Int, Int>()) }
-
     var isPlaying by remember { mutableStateOf(false) }
     var showGeneratingMessage by remember { mutableStateOf(false) }
     var currentTimeline by remember { mutableStateOf<JamTimeline?>(null) }
 
-    // made by Claude 08/07: Instrument role and panel state
+    // made by Claude 10/07: Instrument role and panel state
     var instrumentRoles by remember {
         mutableStateOf(INSTRUMENT_DEFS.associate { it.key to it.defaultRole })
     }
@@ -271,8 +278,7 @@ fun JamLabScreen() {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // ══ SETUP CONTROLS (A1 + A2 Combined) ══
-        // made by Gemini 27/06: converted selections to buttons
+        // ══ MUSIC SETUP ══
         Text("Genre", style = MaterialTheme.typography.labelSmall)
         SimpleDropdown(
             selected = currentGenre.displayName,
@@ -298,8 +304,8 @@ fun JamLabScreen() {
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text("Progression", style = MaterialTheme.typography.labelSmall)
         // made by Gemini 27/06: Modality-aware progression dropdown
+        Text("Progression", style = MaterialTheme.typography.labelSmall)
         SimpleProgressionDropdown(
             selected = currentProgression,
             options = progressionOptions,
@@ -313,13 +319,22 @@ fun JamLabScreen() {
             selected = currentTimeSignature.display,
             options = TimeSignature.values().map { it.display },
             onSelected = { display ->
-                currentTimeSignature = TimeSignature.values().find { it.display == display }
-                    ?: TimeSignature.FOUR_FOUR
+                currentTimeSignature =
+                    TimeSignature.values().find { it.display == display }
+                        ?: TimeSignature.FOUR_FOUR
             },
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
-
+// made by Claude 11/07: Note Length selector
+        Text("Note Length", style = MaterialTheme.typography.labelSmall)
+        SimpleDropdown(
+            selected = currentNoteLength,
+            options = listOf("1/2", "1/4", "1/8", "1/16"),
+            onSelected = { currentNoteLength = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Strum Pattern", style = MaterialTheme.typography.labelSmall)
         PresetDropdownJamLab(
             label = "Strum Pattern",
@@ -335,24 +350,29 @@ fun JamLabScreen() {
             selected = currentPickingPreset.name,
             options = allPickingPresets.map { it.name },
             onSelected = { name ->
-                currentPickingPreset = allPickingPresets.find { it.name == name } ?: allPickingPresets[0]
+                currentPickingPreset =
+                    allPickingPresets.find { it.name == name } ?: allPickingPresets[0]
             },
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        // NEW: Visual Strumming Arrow Display (Gemini 27/06)
-        StrummingVisualDisplay(
-            preset = currentStrumPreset,
-            timeSignature = currentTimeSignature,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp)
-        )
+        // Visual strumming arrow display
+        // made by Claude 11/07: Hide strum display when guitar is in picking mode
+        val guitarRole = instrumentRoles["guitar"] ?: InstrumentRole.STRUM_CHORD
+        if (guitarRole != InstrumentRole.PICK_ARPEGGIO) {
+            StrummingVisualDisplay(
+                preset = currentStrumPreset,
+                timeSignature = currentTimeSignature,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp)
+            )
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 "Custom Strum Mode",
@@ -360,10 +380,28 @@ fun JamLabScreen() {
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(8.dp))
-            androidx.compose.material3.Switch(checked = customStrumMode, onCheckedChange = { customStrumMode = it })
+            Switch(
+                checked = customStrumMode,
+                onCheckedChange = { customStrumMode = it }
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
 
+        Text("Humanisation", style = MaterialTheme.typography.labelSmall)
+        SimpleDropdown(
+            selected = currentHumanisation.name.lowercase()
+                .replaceFirstChar { it.uppercase() },
+            options = HumanisationLevel.values().map { level ->
+                level.name.lowercase().replaceFirstChar { it.uppercase() }
+            },
+            onSelected = { selected ->
+                currentHumanisation = HumanisationLevel.values()
+                    .find { it.name.equals(selected, ignoreCase = true) }
+                    ?: HumanisationLevel.OFF
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             "Tempo: $currentTempo BPM",
             style = MaterialTheme.typography.labelMedium,
@@ -376,7 +414,16 @@ fun JamLabScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
-
+        // made by Claude 11/07: Live progression display
+        currentTimeline?.let { timeline ->
+            JamLabProgressionDisplay(
+                timeline = timeline,
+                currentBarIndex = currentBarIndex,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            )
+        }
         // ══ PLAYBACK CONTROLS ══
         Row(
             modifier = Modifier
@@ -389,15 +436,14 @@ fun JamLabScreen() {
                     isPlaying = true
                     showGeneratingMessage = true
                     audioEngine.stopAudio()
-
-                    // Generate backing track with current settings
                     val key = MusicKey.fromString(currentKey)
-                    val progression = Progressions.ALL[currentProgression] ?: Progressions.ALL.values.first()
+                    val progression =
+                        Progressions.ALL[currentProgression] ?: Progressions.ALL.values.first()
                     val timeline = buildJamTimeline(
                         key = key,
                         progressionSlots = progression,
                         scaleType = currentScale,
-                        chordOverlayMode = com.example.fretboardlayouts.theory.ChordOverlayMode.ALL_CHORD_TONES,
+                        chordOverlayMode = ChordOverlayMode.ALL_CHORD_TONES,
                         tempoBpm = currentTempo,
                         timeSignature = currentTimeSignature
                     )
@@ -408,7 +454,6 @@ fun JamLabScreen() {
             ) {
                 Text("Generate & Play")
             }
-
             Button(
                 onClick = {
                     isPlaying = false
@@ -419,7 +464,6 @@ fun JamLabScreen() {
             ) {
                 Text("Stop")
             }
-
             OutlinedButton(
                 onClick = {
                     isPlaying = false
@@ -440,11 +484,9 @@ fun JamLabScreen() {
                 modifier = Modifier.padding(vertical = 8.dp)
             )
         }
-
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ══ INSTRUMENT MATRIX (made by Claude 08/07) ══
-        Spacer(modifier = Modifier.height(12.dp))
+        // ══ INSTRUMENT MATRIX (made by Claude 10/07) ══
         Text("Instruments", style = MaterialTheme.typography.labelSmall)
         Spacer(modifier = Modifier.height(6.dp))
 
@@ -471,7 +513,8 @@ fun JamLabScreen() {
                 onPickingSelected = { currentPickingPreset = it },
                 selectedProgram = selectedProgramByChannel[selectedDef.channel],
                 onProgramSelected = { program ->
-                    selectedProgramByChannel = selectedProgramByChannel + (selectedDef.channel to program)
+                    selectedProgramByChannel =
+                        selectedProgramByChannel + (selectedDef.channel to program)
                 },
                 audioEngine = audioEngine
             )
@@ -479,38 +522,54 @@ fun JamLabScreen() {
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // ══ PLAYBACK LOOP (if playing) ══
+        // ══ PLAYBACK LOOP ══
         if (isPlaying && currentTimeline != null) {
             PlaybackLoopJamLabHandler(
                 timeline = currentTimeline!!,
                 audioEngine = audioEngine,
                 genre = currentGenre,
                 preset = currentStrumPreset,
-                pickingPreset = currentPickingPreset
+                pickingPreset = currentPickingPreset,
+                instrumentRoles = instrumentRoles,  // made by Claude 10/07
+                onBarChanged = { currentBarIndex = it }  // made by Claude 11/07
             )
         }
-    }
-}
+    } // end Column
+} // end JamLabScreen
 
-/**
- * Playback loop handler — generates backing track and plays it via audioEngine
- */
+// ================================================================
+// PLAYBACK HANDLER
+// ================================================================
+
 @Composable
 private fun PlaybackLoopJamLabHandler(
     timeline: JamTimeline,
     audioEngine: JamLabAudioEngine,
     genre: Genre,
     preset: StrumPreset,
-    pickingPreset: PickingPreset?
+    pickingPreset: PickingPreset?,
+    instrumentRoles: Map<String, InstrumentRole>,  // made by Claude 10/07
+    onBarChanged: (Int) -> Unit  // made by Claude 11/07
 ) {
-    var lastSequencerLoopTime by remember { mutableLongStateOf(-1L) }
-    var pendingNoteOffs by remember { mutableStateOf(listOf<PendingNoteOff>()) }
-
-    // MODIFIED: Use StyleEngine to respect presets and subdivisions (1e&a)
-    val backingTrackEvents = remember(timeline, genre, preset, pickingPreset) {
-        com.example.fretboardlayouts.audio.StyleEngine.generateAccompaniment(timeline, genre, preset, pickingPreset)
+    // made by Claude 10/07: Only fire MIDI events for active channels
+    val activeChannels = remember(instrumentRoles) {
+        INSTRUMENT_DEFS
+            .filter { def ->
+                (instrumentRoles[def.key] ?: InstrumentRole.OFF) != InstrumentRole.OFF
+            }
+            .map { it.channel }
+            .toSet()
     }
 
+    var lastSequencerLoopTime by remember { mutableLongStateOf(-1L) }
+    val pendingNoteOffs = remember { mutableListOf<PendingNoteOff>() } // made by Claude 11/07: mutableListOf avoids recomposition
+    val lastBarIndexRef = remember { intArrayOf(-1) } // made by Claude 11/07: plain array avoids recomposition
+
+    val backingTrackEvents = remember(timeline, genre, preset, pickingPreset) {
+        com.example.fretboardlayouts.audio.StyleEngine.generateAccompaniment(
+            timeline, genre, preset, pickingPreset
+        )
+    }
 
     LaunchedEffect(Unit) {
         val startTime = withFrameMillis { it }
@@ -519,47 +578,63 @@ private fun PlaybackLoopJamLabHandler(
                 val currentTimeMs = frameTime - startTime
                 val loopTime = currentTimeMs % timeline.loopDurationMs
 
-                // 1. DETERMINISTIC SEQUENCER
+                // made by Claude 11/07: Surface current bar index to UI
+                val currentBar = timeline.events
+                    .firstOrNull { loopTime >= it.startMs && loopTime < it.startMs + it.durationMs }
+                    ?.barIndex ?: 0
+                if (currentBar != lastBarIndexRef[0]) { // made by Claude 11/07
+                    lastBarIndexRef[0] = currentBar
+                    onBarChanged(currentBar)
+                }
+
                 if (lastSequencerLoopTime == -1L) {
                     lastSequencerLoopTime = loopTime
                     if (loopTime < 100) {
-                        backingTrackEvents.filter { it.timeMs == 0L }.forEach { event ->
-                            audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                            pendingNoteOffs = pendingNoteOffs + PendingNoteOff(
-                                event.channel, event.pitch, currentTimeMs + event.durationMs
-                            )
-                        }
+                        backingTrackEvents
+                            .filter { it.timeMs == 0L && it.channel in activeChannels }
+                            .forEach { event ->
+                                audioEngine.noteOn(event.channel, event.pitch, event.velocity)
+                                pendingNoteOffs.add(PendingNoteOff(
+                                    event.channel, event.pitch, currentTimeMs + event.durationMs
+                                ))
+                            }
                     }
                 }
 
-                // Handle loop wrap-around
                 if (loopTime < lastSequencerLoopTime) {
-                    backingTrackEvents.filter { it.timeMs > lastSequencerLoopTime }.forEach { event ->
-                        audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                        pendingNoteOffs = pendingNoteOffs + PendingNoteOff(
-                            event.channel, event.pitch, currentTimeMs + event.durationMs
-                        )
-                    }
+                    backingTrackEvents
+                        .filter {
+                            it.timeMs > lastSequencerLoopTime && it.channel in activeChannels
+                        }
+                        .forEach { event ->
+                            audioEngine.noteOn(event.channel, event.pitch, event.velocity)
+                            pendingNoteOffs.add(PendingNoteOff(
+                                event.channel, event.pitch, currentTimeMs + event.durationMs
+                            ))
+                        }
                     lastSequencerLoopTime = -1L
                 }
 
-                // Standard frame check
                 backingTrackEvents
-                    .filter { it.timeMs > lastSequencerLoopTime && it.timeMs <= loopTime }
+                    .filter {
+                        it.timeMs > lastSequencerLoopTime &&
+                                it.timeMs <= loopTime &&
+                                it.channel in activeChannels
+                    }
                     .forEach { event ->
                         audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                        pendingNoteOffs = pendingNoteOffs + PendingNoteOff(
+                        pendingNoteOffs.add(PendingNoteOff(
                             event.channel, event.pitch, currentTimeMs + event.durationMs
-                        )
+                        ))
                     }
+
                 lastSequencerLoopTime = loopTime
 
-                // Fire note-offs that are due
                 if (pendingNoteOffs.isNotEmpty()) {
                     val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs }
                     if (dueOffs.isNotEmpty()) {
                         dueOffs.forEach { audioEngine.noteOff(it.channel, it.pitch) }
-                        pendingNoteOffs = pendingNoteOffs - dueOffs.toSet()
+                        pendingNoteOffs.removeAll(dueOffs.toSet())
                     }
                 }
             }
@@ -567,15 +642,16 @@ private fun PlaybackLoopJamLabHandler(
     }
 }
 
-// ══ HELPER DATA CLASSES ══
+// ================================================================
+// HELPER DATA CLASSES
+// ================================================================
 
 private data class PendingNoteOff(val channel: Int, val pitch: Int, val offAtMs: Long)
 
-// ══ COMPOSABLE HELPERS ══
+// ================================================================
+// COMPOSABLE HELPERS
+// ================================================================
 
-/**
- * Simple dropdown for JamLab — no external viewModel dependency
- */
 @Composable
 private fun SimpleDropdown(
     selected: String,
@@ -584,72 +660,22 @@ private fun SimpleDropdown(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-
     Button(onClick = { expanded = true }, modifier = modifier) {
         Text(selected, maxLines = 1)
     }
-
     if (expanded) {
         DropdownMenu(expanded = true, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option, fontSize = 11.sp) },
-                    onClick = {
-                        onSelected(option)
-                        expanded = false
-                    }
+                    onClick = { onSelected(option); expanded = false }
                 )
             }
         }
     }
 }
 
-/**
- * Preset dropdown with smart genre-based filtering
- * Shows all presets but greys out ones that don't apply to current genre (unless custom mode is on)
- */
-@Composable
-private fun PresetDropdownJamLab(
-    label: String,
-    options: List<PresetOption>,
-    selectedName: String,
-    onSelected: (StrumPreset) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Button(onClick = { expanded = true }, modifier = modifier) {
-        Text(selectedName, maxLines = 1)
-    }
-
-    if (expanded) {
-        DropdownMenu(expanded = true, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = option.preset.name,
-                            color = if (option.enabled) Color.Unspecified else Color.Gray,
-                            fontSize = 11.sp
-                        )
-                    },
-                    enabled = option.enabled,
-                    onClick = {
-                        onSelected(option.preset)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-/**
- * Modality-aware progression dropdown for JamLab.
- * Mirrors the ProgressionDropdown in MainActivity but uses the Button style
- * consistent with other JamLab dropdowns.
- * // made by Claude 08/07
- */
+// made by Claude 08/07
 @Composable
 private fun SimpleProgressionDropdown(
     selected: String,
@@ -673,17 +699,49 @@ private fun SimpleProgressionDropdown(
                         )
                     },
                     enabled = option.enabled,
-                    onClick = {
-                        onSelected(option.name)
-                        expanded = false
-                    }
+                    onClick = { onSelected(option.name); expanded = false }
                 )
             }
         }
     }
 }
 
-// made by Claude 08/07: Instrument role matrix
+@Composable
+private fun PresetDropdownJamLab(
+    label: String,
+    options: List<PresetOption>,
+    selectedName: String,
+    onSelected: (StrumPreset) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Button(onClick = { expanded = true }, modifier = modifier) {
+        Text(selectedName, maxLines = 1)
+    }
+    if (expanded) {
+        DropdownMenu(expanded = true, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = option.preset.name,
+                            color = if (option.enabled) Color.Unspecified else Color.Gray,
+                            fontSize = 11.sp
+                        )
+                    },
+                    enabled = option.enabled,
+                    onClick = { onSelected(option.preset); expanded = false }
+                )
+            }
+        }
+    }
+}
+
+// ================================================================
+// INSTRUMENT ROLE MATRIX
+// made by Claude 10/07
+// ================================================================
+
 @Composable
 private fun InstrumentRoleMatrix(
     instrumentRoles: Map<String, InstrumentRole>,
@@ -694,10 +752,14 @@ private fun InstrumentRoleMatrix(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .border(
+                0.5.dp,
+                MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(12.dp)
+            )
             .clip(RoundedCornerShape(12.dp))
     ) {
-        // Header
+        // Header row
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -715,16 +777,17 @@ private fun InstrumentRoleMatrix(
                 )
             }
         }
+
         INSTRUMENT_DEFS.forEach { def ->
             val role = instrumentRoles[def.key] ?: InstrumentRole.OFF
-            val isSelected = selectedKey == def.key
             val isActive = role != InstrumentRole.OFF
             HorizontalDivider()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        if (selectedKey == def.key)
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                         else Color.Transparent
                     )
                     .padding(vertical = 6.dp),
@@ -746,28 +809,18 @@ private fun InstrumentRoleMatrix(
                     enabled = true,
                     modifier = Modifier.weight(1f)
                 ) { onRoleChanged(def.key, InstrumentRole.OFF); onInstrumentSelected(def.key) }
-                // Strum/Chord
+                // Strum / Chord
                 RoleRadio(
                     selected = role == InstrumentRole.STRUM_CHORD,
                     enabled = true,
                     modifier = Modifier.weight(1f)
-                ) {
-                    onRoleChanged(
-                        def.key,
-                        InstrumentRole.STRUM_CHORD
-                    ); onInstrumentSelected(def.key)
-                }
-                // Pick/Arpeggio
+                ) { onRoleChanged(def.key, InstrumentRole.STRUM_CHORD); onInstrumentSelected(def.key) }
+                // Pick / Arpeggio
                 RoleRadio(
                     selected = role == InstrumentRole.PICK_ARPEGGIO,
                     enabled = def.supportsPickArpeggio,
                     modifier = Modifier.weight(1f)
-                ) {
-                    onRoleChanged(
-                        def.key,
-                        InstrumentRole.PICK_ARPEGGIO
-                    ); onInstrumentSelected(def.key)
-                }
+                ) { onRoleChanged(def.key, InstrumentRole.PICK_ARPEGGIO); onInstrumentSelected(def.key) }
                 // Hybrid
                 RoleRadio(
                     selected = role == InstrumentRole.HYBRID,
@@ -821,8 +874,63 @@ private fun RoleRadio(
         }
     }
 }
+// made by Claude 11/07: Live progression display for Jam Lab
+@Composable
+private fun JamLabProgressionDisplay(
+    timeline: JamTimeline,
+    currentBarIndex: Int,
+    modifier: Modifier = Modifier
+) {
+    val progressionChords = remember(timeline) {
+        timeline.events
+            .sortedBy { it.barIndex }
+            .distinctBy { it.barIndex }
+            .map { it.chord }
+    }
 
-// made by Claude 08/07: Pattern + sound panel for selected instrument
+    Column(
+        modifier = modifier
+            .background(Color(0xFF1A1A2E), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        // Chord names row
+        Row(modifier = Modifier.fillMaxWidth()) {
+            progressionChords.forEachIndexed { index, chord ->
+                val isActive = index == currentBarIndex
+                Text(
+                    text = chord.name,
+                    color = if (isActive) Color(0xFF90CAF9) else Color(0xFF888899),
+                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Normal,
+                    fontSize = if (isActive) 18.sp else 14.sp,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        HorizontalDivider(color = Color(0xFF333355))
+        Spacer(modifier = Modifier.height(4.dp))
+        // Roman numerals row
+        Row(modifier = Modifier.fillMaxWidth()) {
+            progressionChords.forEachIndexed { index, chord ->
+                val isActive = index == currentBarIndex
+                Text(
+                    text = chord.romanLabel,
+                    color = if (isActive) Color.White else Color(0xFF555577),
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = if (isActive) 13.sp else 10.sp,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+// ================================================================
+// INSTRUMENT PATTERN PANEL
+// made by Claude 10/07
+// ================================================================
+
 @Composable
 private fun InstrumentPatternPanel(
     instrumentKey: String,
@@ -847,6 +955,7 @@ private fun InstrumentPatternPanel(
             else "picking patterns"
         InstrumentRole.HYBRID -> "hybrid patterns"
     }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -857,7 +966,7 @@ private fun InstrumentPatternPanel(
             )
             .clip(RoundedCornerShape(8.dp))
     ) {
-        // Header
+        // Panel header
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -871,6 +980,7 @@ private fun InstrumentPatternPanel(
                 fontWeight = FontWeight.Medium
             )
         }
+
         Column(modifier = Modifier.padding(10.dp)) {
             // Pattern section
             if (role == InstrumentRole.OFF) {
@@ -917,12 +1027,17 @@ private fun InstrumentPatternPanel(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
-            // Sound / program selection — always visible
+
+            // Sound section — always visible
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("Sound", fontSize = 10.sp, color = Color.Gray,
-                modifier = Modifier.padding(bottom = 6.dp))
+            Text(
+                "Sound",
+                fontSize = 10.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
             val programs = INSTRUMENT_PROGRAMS[instrumentKey] ?: emptyList()
-            androidx.compose.foundation.lazy.LazyRow(
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -930,11 +1045,14 @@ private fun InstrumentPatternPanel(
                     val (name, program) = programs[index]
                     val isSelected = program == selectedProgram
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Program number badge
                         Box(
                             modifier = Modifier
                                 .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                    if (isSelected)
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                    else
+                                        MaterialTheme.colorScheme.surfaceVariant,
                                     RoundedCornerShape(4.dp)
                                 )
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
@@ -942,8 +1060,10 @@ private fun InstrumentPatternPanel(
                             Text(
                                 text = program.toString().padStart(3, '0'),
                                 fontSize = 8.sp,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary
-                                else Color.Gray,
+                                color = if (isSelected)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    Color.Gray,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -956,7 +1076,9 @@ private fun InstrumentPatternPanel(
                                 },
                                 modifier = Modifier.height(36.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
-                            ) { Text(name, fontSize = 10.sp) }
+                            ) {
+                                Text(name, fontSize = 10.sp)
+                            }
                         } else {
                             OutlinedButton(
                                 onClick = {
@@ -965,7 +1087,9 @@ private fun InstrumentPatternPanel(
                                 },
                                 modifier = Modifier.height(36.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
-                            ) { Text(name, fontSize = 10.sp) }
+                            ) {
+                                Text(name, fontSize = 10.sp)
+                            }
                         }
                     }
                 }
