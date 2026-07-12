@@ -94,20 +94,55 @@ fun renderStrum(
     ticksPerBeat: Int = 4
 ): List<BackingTrackGenerator.MidiNoteEvent> {
     val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+    // made by Claude 11/07: derive slot duration from grid resolution
+    val totalTicks = timeSignature.beatsPerBar * ticksPerBeat
+    val slotDurationMs = durationMs / totalTicks
+
     pattern.forEachIndexed { tick, state ->
         if (state == SlotState.REST) return@forEachIndexed
         val velocity = if (state == SlotState.ACCENT) accentVelocity else normalVelocity
         val beat = tick / ticksPerBeat
         val tickInBeat = tick % ticksPerBeat
         val time = startMs + beatTickToMs(beat, tickInBeat, ticksPerBeat, timeSignature, durationMs)
-        addStrum(events, time, channel, voicing, velocity, isDownstroke = directions[tick])
+        addStrum(events, time, channel, voicing, velocity,
+            isDownstroke = directions[tick],
+            slotDurationMs = slotDurationMs  // made by Claude 11/07
+        )
     }
     return events
 }
-private fun addStrum(events: MutableList<BackingTrackGenerator.MidiNoteEvent>, time: Long, channel: Int, pitches: List<Int>, velocity: Int, isDownstroke: Boolean) {
-    val sortedPitches = if (isDownstroke) pitches.sorted() else pitches.sortedDescending()
+private fun addStrum(
+    events: MutableList<BackingTrackGenerator.MidiNoteEvent>,
+    time: Long,
+    channel: Int,
+    pitches: List<Int>,
+    velocity: Int,
+    isDownstroke: Boolean,
+    slotDurationMs: Long   // made by Claude 11/07: derived from grid, not hardcoded
+) {
+    val spreadMs = ((127 - velocity) / 127f * 25 + 8).toLong().coerceIn(8, 33)
+
+    val sortedPitches = if (isDownstroke) {
+        pitches.sorted()
+    } else {
+        pitches.sortedDescending().take(4)
+    }
+
+    // made by Claude 11/07: note rings for its slot duration minus a small gap
+    // gap prevents notes bleeding into the next hit unnaturally
+    // coerceAtLeast(80) ensures very fast tempos/dense grids stay audible
+    val noteDurationMs = (slotDurationMs * 0.92f).toLong().coerceAtLeast(80L)
+
     sortedPitches.forEachIndexed { i, pitch ->
-        events.add(BackingTrackGenerator.MidiNoteEvent(time + (i * 20), channel, pitch, velocity, 800))
+        events.add(
+            BackingTrackGenerator.MidiNoteEvent(
+                time + (i * spreadMs),
+                channel,
+                pitch,
+                velocity,
+                noteDurationMs.toInt()
+            )
+        )
     }
 }
 fun renderPreset(

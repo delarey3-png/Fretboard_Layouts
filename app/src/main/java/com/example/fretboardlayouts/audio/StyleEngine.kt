@@ -13,6 +13,10 @@ import com.example.fretboardlayouts.theory.shape
 import com.example.fretboardlayouts.theory.HumanisationLevel // made by Claude 11/07
 import com.example.fretboardlayouts.theory.humanisationProfile // made by Claude 11/07
 import com.example.fretboardlayouts.theory.humaniseVelocity // made by Claude 11/07
+import com.example.fretboardlayouts.theory.humaniseTiming   // made by Claude 11/07
+import com.example.fretboardlayouts.theory.humaniseDuration // made by Claude 11/07
+import com.example.fretboardlayouts.theory.GrooveType       // made by Claude 11/07
+import com.example.fretboardlayouts.theory.grooveOffsetMs   // made by Claude 11/07
 
 /**
  * The "Band-in-a-Box" style engine.
@@ -71,19 +75,45 @@ object StyleEngine {
         // Each instrument rolls independently — same setting, different feel per channel
         if (humanisationLevel == HumanisationLevel.OFF) return allEvents
         val humanProfile = humanisationProfile(humanisationLevel)
+
+        // made by Claude 11/07: Groove template — consistent genre feel on top of random variation
+        val grooveType = genreGroove(genre)
+        val beatDurationMs = if (timeline.events.isNotEmpty())
+            timeline.events.first().durationMs / timeline.timeSignature.beatsPerBar
+        else 500L
+
         return allEvents.map { event ->
             val isAccent = event.velocity >= 95
-            val humanisedVelocity = humaniseVelocity(
-                baseVelocity = event.velocity,
-                channel = event.channel,
-                isAccent = isAccent,
-                profile = humanProfile
+            val groove = grooveOffsetMs(event.timeMs, beatDurationMs, grooveType, event.channel)
+            event.copy(
+                velocity = humaniseVelocity(
+                    baseVelocity = event.velocity,
+                    channel = event.channel,
+                    isAccent = isAccent,
+                    profile = humanProfile
+                ),
+                timeMs = (humaniseTiming(
+                    baseTimeMs = event.timeMs,
+                    channel = event.channel,
+                    isAccent = isAccent,
+                    profile = humanProfile
+                ) + groove).coerceAtLeast(0L),
+                durationMs = if (event.channel == 0) {
+                    (humaniseDuration(event.durationMs, event.channel, humanProfile) * 1.15f).toInt()
+                } else {
+                    humaniseDuration(event.durationMs, event.channel, humanProfile)
+                }
             )
-            event.copy(velocity = humanisedVelocity)
         }
     }
-
-
+    // made by Claude 11/07: Genre groove type mapping
+    private fun genreGroove(genre: Genre): GrooveType = when (genre) {
+        Genre.JAZZ    -> GrooveType.LAID_BACK  // classic laid-back swing feel
+        Genre.BLUES   -> GrooveType.LAID_BACK  // laid-back blues feel
+        Genre.FUNK    -> GrooveType.LAID_BACK  // subtle pocket feel
+        Genre.ROCK    -> GrooveType.STRAIGHT   // tight on the beat
+        Genre.COUNTRY -> GrooveType.PUSHED     // train-beat forward drive
+    }
     // ─── DRUMS ───────────────────────────────────────────────────────────────
 
     private fun generateDrums(
