@@ -327,14 +327,130 @@ val jazzBalladPreset = StrumPreset(
     ))
 )
 
+// ─── ROCK ADDITIONS ──────────────────────────────────────────────────────────
+// made by Claude 11/07: D-DU-DU-DU — the most common rock/pop strum, previously missing
+val rockDownUpPreset = StrumPreset(
+    name = "Rock Down-Up",
+    applicableGenres = setOf(Genre.ROCK),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "<x>_xxxxxx",   // 8 slots: D-DU-DU-DU
+            MeterShape.THREE_BEAT to "<x>_xxxx",      // 6 slots: D-DU-DU
+            MeterShape.FIVE_BEAT  to "<x>_xxxxxxxx"   // 10 slots: D-DU-DU-DU-DU
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "d_dududu",
+            MeterShape.THREE_BEAT to "d_dudu",
+            MeterShape.FIVE_BEAT  to "d_dudududu"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.FULL,
+        normalVelocity = 70, accentVelocity = 82
+    ))
+)
+
+// made by Claude 11/07: 16th note grid — D-DU per beat, driven feel
+val rockSixteenthPreset = StrumPreset(
+    name = "Rock 16th",
+    applicableGenres = setOf(Genre.ROCK),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            // Each beat = 4 slots: ACCENT/REST/HIT/HIT then HIT/REST/HIT/HIT repeating
+            MeterShape.FOUR_BEAT  to "<x>_xxx_xxx_xxx_xx",  // 16 slots
+            MeterShape.THREE_BEAT to "<x>_xxx_xxx_xx",       // 12 slots
+            MeterShape.FIVE_BEAT  to "<x>_xxx_xxx_xxx_xxx_xx" // 20 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "d_dud_dud_dud_du",
+            MeterShape.THREE_BEAT to "d_dud_dud_du",
+            MeterShape.FIVE_BEAT  to "d_dud_dud_dud_dud_du"
+        ),
+        ticksPerBeat = 4, voicingSubset = VoicingSubset.FULL,
+        normalVelocity = 72, accentVelocity = 85
+    ))
+)
+
+// ─── COUNTRY ADDITIONS ───────────────────────────────────────────────────────
+// made by Claude 11/07: alternating DU every 8th — two-step/waltz feel
+val countryTwoStepPreset = StrumPreset(
+    name = "Country Two-Step",
+    applicableGenres = setOf(Genre.COUNTRY),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "<x>xxxxxxx",   // 8 slots
+            MeterShape.THREE_BEAT to "<x>xxxxx",      // 6 slots
+            MeterShape.FIVE_BEAT  to "<x>xxxxxxxxx"   // 10 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "dudududu",
+            MeterShape.THREE_BEAT to "dududu",
+            MeterShape.FIVE_BEAT  to "dududududu"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.FULL,
+        normalVelocity = 70, accentVelocity = 80
+    ))
+)
+
+// ─── BLUES ADDITIONS ─────────────────────────────────────────────────────────
+// made by Claude 11/07: Delta Blues — very sparse, beats 1 and 3 only
+val bluesDeltaPreset = StrumPreset(
+    name = "Delta Blues",
+    applicableGenres = setOf(Genre.BLUES),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            // Hits on beats 1 and 3 only — tpb=2 so beat3 starts at slot4
+            MeterShape.FOUR_BEAT  to "<x>___x___",   // 8 slots
+            MeterShape.THREE_BEAT to "<x>___x_",      // 6 slots
+            MeterShape.FIVE_BEAT  to "<x>___x___x_"   // 10 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "d___d___",
+            MeterShape.THREE_BEAT to "d___d_",
+            MeterShape.FIVE_BEAT  to "d___d___d_"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.FULL,
+        normalVelocity = 68, accentVelocity = 78
+    ))
+)
+
+// ─── JAZZ ADDITIONS ──────────────────────────────────────────────────────────
+// made by Claude 11/07: Bossa-style syncopated comp — D U rest U / D U rest U
+val jazzBossaPreset = StrumPreset(
+    name = "Bossa Comp",
+    applicableGenres = setOf(Genre.JAZZ),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            // D(1) U(&1) REST(2) U(&2) D(3) U(&3) REST(4) U(&4)
+            MeterShape.FOUR_BEAT  to "<x>x_xxx_x",   // 8 slots
+            MeterShape.THREE_BEAT to "<x>x_xx_",      // 6 slots
+            MeterShape.FIVE_BEAT  to "<x>x_xxx_xxx"   // 10 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "du_udu_u",
+            MeterShape.THREE_BEAT to "du_du_",
+            MeterShape.FIVE_BEAT  to "du_udu_udu"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.TOP_THREE,
+        normalVelocity = 58, accentVelocity = 68
+    ))
+)
+
 // ─── REGISTRY ────────────────────────────────────────────────────────────────
 
 val allGuitarPresets: List<StrumPreset> = listOf(
+    // Rock
     rockStandardPreset, rockDrivingPreset, rockBalladPreset,
+    rockDownUpPreset, rockSixteenthPreset,             // made by Claude 11/07
+    // Country
     countryBoomChickaPreset, countryGallopPreset, countrySlowPreset,
+    countryTwoStepPreset,                              // made by Claude 11/07
+    // Blues
     bluesShufflePreset, bluesSlowPreset, bluesRockPreset,
+    bluesDeltaPreset,                                  // made by Claude 11/07
+    // Funk
     funkScratchPreset, funkHeavyPreset, funkGroovePreset,
-    jazzFreddieGreenPreset, jazzCompPreset, jazzBalladPreset
+    // Jazz
+    jazzFreddieGreenPreset, jazzCompPreset, jazzBalladPreset,
+    jazzBossaPreset                                    // made by Claude 11/07
 )
 
 fun isApplicable(preset: StrumPreset, genre: Genre): Boolean =

@@ -17,6 +17,12 @@ import com.example.fretboardlayouts.theory.humaniseTiming   // made by Claude 11
 import com.example.fretboardlayouts.theory.humaniseDuration // made by Claude 11/07
 import com.example.fretboardlayouts.theory.GrooveType       // made by Claude 11/07
 import com.example.fretboardlayouts.theory.grooveOffsetMs   // made by Claude 11/07
+import com.example.fretboardlayouts.theory.InstrumentRole  // made by Claude 11/07
+import com.example.fretboardlayouts.theory.ChordQuality    // made by Claude 11/07 — if not already imported
+import com.example.fretboardlayouts.theory.DrumPreset
+import com.example.fretboardlayouts.theory.allDrumPresets
+import com.example.fretboardlayouts.theory.beatTickToMs
+import com.example.fretboardlayouts.theory.getRandomPresetForGenre
 
 /**
  * The "Band-in-a-Box" style engine.
@@ -50,7 +56,8 @@ object StyleEngine {
         genre: Genre,
         guitarPreset: StrumPreset,
         pickingPreset: PickingPreset? = null,
-        humanisationLevel: HumanisationLevel = HumanisationLevel.OFF
+        humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
+        instrumentRoles: Map<String, InstrumentRole> = emptyMap() // made by Claude 11/07
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
@@ -60,14 +67,36 @@ object StyleEngine {
             val startMs = event.startMs
             val durationMs = event.durationMs
 
-            allEvents.addAll(generateDrums(startMs, durationMs, genre, timeSignature))
-            allEvents.addAll(generateBass(startMs, durationMs, chord, genre, timeSignature))
-            
-            if (pickingPreset != null && pickingPreset.layers.isNotEmpty()) {
-                allEvents.addAll(generateGuitarPicking(startMs, durationMs, chord, pickingPreset, timeSignature))
-            } else {
-                allEvents.addAll(generateGuitar(startMs, durationMs, chord, guitarPreset, timeSignature))
+            // made by Claude 11/07: Role-aware generation — only active channels produce events
+            val drumsRole  = instrumentRoles["drums"]   ?: InstrumentRole.STRUM_CHORD
+            val bassRole   = instrumentRoles["bass"]    ?: InstrumentRole.STRUM_CHORD
+            val guitarRole = instrumentRoles["guitar"]  ?: InstrumentRole.STRUM_CHORD
+            val pianoRole  = instrumentRoles["piano"]   ?: InstrumentRole.OFF
+            val stringsRole = instrumentRoles["strings"] ?: InstrumentRole.OFF
+
+            if (drumsRole != InstrumentRole.OFF) {
+                // TEST: Use DrumPreset instead of genre-based generation
+                val testDrumPreset = getRandomPresetForGenre(genre, lockToGenre = true) ?: allDrumPresets.first()
+                allEvents.addAll(generateDrumsFromPreset(testDrumPreset, startMs, durationMs, timeSignature))
             }
+
+            if (bassRole != InstrumentRole.OFF)
+                allEvents.addAll(generateBass(startMs, durationMs, chord, genre, timeSignature))
+
+            if (guitarRole != InstrumentRole.OFF) {
+                if (pickingPreset != null && pickingPreset.layers.isNotEmpty()
+                    && guitarRole == InstrumentRole.PICK_ARPEGGIO) {
+                    allEvents.addAll(generateGuitarPicking(startMs, durationMs, chord, pickingPreset, timeSignature))
+                } else {
+                    allEvents.addAll(generateGuitar(startMs, durationMs, chord, guitarPreset, timeSignature))
+                }
+            }
+
+            if (pianoRole != InstrumentRole.OFF)  // made by Claude 11/07
+                allEvents.addAll(generatePiano(startMs, durationMs, chord, genre, timeSignature, pianoRole))
+
+            if (stringsRole != InstrumentRole.OFF)  // made by Claude 11/07
+                allEvents.addAll(generateStrings(startMs, durationMs, chord))
         }
 
         // made by Claude 11/07: Apply humanisation as post-processing step
@@ -270,6 +299,82 @@ object StyleEngine {
 
         return events
     }
+// made by Claude: DrumPreset extraction adapter
+// Add this function to StyleEngine.kt (after the existing generateDrums function)
+
+    private fun generateDrumsFromPreset(
+        preset: DrumPreset,
+        startMs: Long,
+        durationMs: Long,
+        timeSignature: TimeSignature
+    ): List<BackingTrackGenerator.MidiNoteEvent> {
+        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+
+        // Determine ticksPerBeat based on grooveFactor
+        // Low groove (straight): ticksPerBeat = 4 (sixteenth-note grid)
+        // High groove (swing): ticksPerBeat = 3 (triplet grid)
+        val ticksPerBeat = if (preset.grooveFactor > 0.25f) 3 else 4
+
+        // Convert 1-9 velocity scale to 1-127 MIDI scale
+        fun velocityCharToMidi(char: Char): Int {
+            val v = char.toString().toIntOrNull() ?: 0
+            return (v * 14).coerceIn(1, 127)
+        }
+
+        // Convert simple x_x_ pattern to events with per-note velocities
+        fun renderPatternWithVelocity(
+            pattern: String,
+            velocityPattern: String,
+            pitch: Int,
+            noteLengthMs: Int
+        ) {
+            for (i in pattern.indices) {
+                if (pattern[i] == '_') continue  // Skip rests
+
+                val velocity = if (i < velocityPattern.length) {
+                    velocityCharToMidi(velocityPattern[i])
+                } else {
+                    80
+                }
+
+                val beat = i / ticksPerBeat
+                val tickInBeat = i % ticksPerBeat
+
+                events.add(
+                    BackingTrackGenerator.MidiNoteEvent(
+                        startMs + beatTickToMs(beat, tickInBeat, ticksPerBeat, timeSignature, durationMs),
+                        9, pitch, velocity, noteLengthMs  // Channel 9 = drums
+                    )
+                )
+            }
+        }
+
+        // Generate kick drum (MIDI pitch 36)
+        renderPatternWithVelocity(
+            preset.kickPattern,
+            preset.kickVelocity,
+            pitch = 36,
+            noteLengthMs = 100
+        )
+
+        // Generate snare drum (MIDI pitch 38)
+        renderPatternWithVelocity(
+            preset.snarePattern,
+            preset.snareVelocity,
+            pitch = 38,
+            noteLengthMs = 100
+        )
+
+        // Generate hi-hat (MIDI pitch 42 = closed hi-hat)
+        renderPatternWithVelocity(
+            preset.hihatPattern,
+            preset.hihatVelocity,
+            pitch = 42,
+            noteLengthMs = 40  // Hi-hat is shorter
+        )
+
+        return events
+    }
 
     // ─── BASS ────────────────────────────────────────────────────────────────
 
@@ -392,5 +497,113 @@ object StyleEngine {
         while (pitch < 28) pitch += 12
         while (pitch > 40) pitch -= 12
         return pitch
+    }
+    // ─── PIANO ───────────────────────────────────────────────────────────────
+    // made by Claude 11/07: Piano generation — comping or arpeggio based on role
+
+    private fun findPianoChordNotes(chord: ResolvedChord): List<Int> {
+        var root = chord.rootPitchClass + 48 // Start at C3
+        while (root < 48) root += 12
+        while (root > 60) root -= 12   // Keep root in C3-C4
+
+        return chord.quality.intervals.map { interval ->
+            val note = root + interval
+            if (note > 72) note - 12 else note  // Keep within C3-C5
+        }.distinct().take(4)  // Max 4 notes — clean piano voicing
+    }
+
+    private fun generatePiano(
+        startMs: Long,
+        durationMs: Long,
+        chord: ResolvedChord,
+        genre: Genre,
+        timeSignature: TimeSignature,
+        role: InstrumentRole
+    ): List<BackingTrackGenerator.MidiNoteEvent> {
+        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+        val chordNotes = findPianoChordNotes(chord)
+        val b = timeSignature.beatsPerBar
+        val beatMs = durationMs / b
+
+        when (role) {
+            InstrumentRole.STRUM_CHORD -> {
+                // Genre-aware comping — hit times and velocity vary per genre
+                val hits: List<Pair<Long, Int>> = when (genre) {
+                    Genre.JAZZ -> // Sparse comp: beats 2 and 4
+                        listOf(2, 4).filter { it <= b }
+                            .map { beat -> Pair(startMs + (beat - 1) * beatMs, 62) }
+
+                    Genre.BLUES -> // Every beat — boogie feel
+                        (1..b).map { beat ->
+                            Pair(startMs + (beat - 1) * beatMs, 70)
+                        }
+
+                    Genre.FUNK -> // Upbeat stabs — "and" of each beat
+                        (1..b).map { beat ->
+                            Pair(startMs + (beat - 1) * beatMs + beatMs / 2, 75)
+                        }
+
+                    Genre.COUNTRY -> // Beats 2 and 4 matching snare
+                        listOf(2, 4).filter { it <= b }
+                            .map { beat -> Pair(startMs + (beat - 1) * beatMs, 65) }
+
+                    Genre.ROCK -> // Beats 1 and 3 — downbeat emphasis
+                        listOf(1, 3).filter { it <= b }
+                            .map { beat -> Pair(startMs + (beat - 1) * beatMs, 70) }
+                }
+                val noteDurationMs = (beatMs * 0.9f).toInt().coerceAtLeast(80)
+                hits.forEach { (timeMs, velocity) ->
+                    chordNotes.forEach { pitch ->
+                        events.add(BackingTrackGenerator.MidiNoteEvent(
+                            timeMs, 2, pitch, velocity, noteDurationMs
+                        ))
+                    }
+                }
+            }
+
+            InstrumentRole.PICK_ARPEGGIO -> {
+                // Ascending broken chord — one note per 8th note slot
+                val intervalMs = beatMs / 2  // 8th note spacing
+                chordNotes.forEachIndexed { i, pitch ->
+                    val timeMs = startMs + (i * intervalMs)
+                    if (timeMs < startMs + durationMs) {
+                        events.add(BackingTrackGenerator.MidiNoteEvent(
+                            timeMs, 2, pitch, 65, intervalMs.toInt()
+                        ))
+                    }
+                }
+            }
+
+            else -> {} // OFF and HYBRID — no events
+        }
+        return events
+    }
+
+    // ─── STRINGS ─────────────────────────────────────────────────────────────
+    // made by Claude 11/07: Strings — sustained pad underneath, root + fifth
+
+    private fun findStringsPitch(pitchClass: Int): Int {
+        var pitch = 48 + pitchClass  // Start at C3
+        while (pitch < 48) pitch += 12
+        while (pitch > 60) pitch -= 12
+        return pitch
+    }
+
+    private fun generateStrings(
+        startMs: Long,
+        durationMs: Long,
+        chord: ResolvedChord
+    ): List<BackingTrackGenerator.MidiNoteEvent> {
+        val delayMs = 8L  // Slight delayed attack — sits behind guitar
+        val root  = findStringsPitch(chord.rootPitchClass)
+        val fifth = findStringsPitch((chord.rootPitchClass + 7) % 12)
+        return listOf(
+            BackingTrackGenerator.MidiNoteEvent(
+                startMs + delayMs, 3, root,  52, durationMs.toInt()
+            ),
+            BackingTrackGenerator.MidiNoteEvent(
+                startMs + delayMs, 3, fifth, 48, durationMs.toInt()
+            )
+        )
     }
 }
