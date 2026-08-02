@@ -2,12 +2,11 @@ package com.example.fretboardlayouts.audio
 
 import android.content.Context
 import android.util.Log
-import com.example.fretboardlayouts.brain.*
 
 /**
  * Standalone audio engine for JamLabActivity.
  * Completely isolated from MainViewModel's audio pipeline.
- * 
+ *
  * - Own MidiPlayer instance (not shared)
  * - Handles note-on/off and program changes
  * - Clean start/stop without affecting FluidSynthEngine singleton

@@ -73,8 +73,6 @@ import com.example.fretboardlayouts.theory.buildVisualStrumState
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
 import com.example.fretboardlayouts.theory.InstrumentRole // made by Claude 11/07
-import com.example.fretboardlayouts.theory.getPresetsByGenre
-import com.example.fretboardlayouts.theory.getRandomPresetForGenre
 
 // ================================================================
 // TOP-LEVEL DEFINITIONS
@@ -230,10 +228,8 @@ fun JamLabScreen() {
     var currentScale by remember { mutableStateOf(ScaleType.FULL) }
     var currentStrumPreset by remember { mutableStateOf(allGuitarPresets[0]) }
     var currentPickingPreset by remember { mutableStateOf(allPickingPresets[0]) }
-    var lockDrumGenre by remember { mutableStateOf(true) }  // NEW: Drum genre lock toggle
     var customStrumMode by remember { mutableStateOf(false) }
     var currentNoteLength by remember { mutableStateOf("1/4") }
-    var currentDrumPreset by remember { mutableStateOf(getRandomPresetForGenre(Genre.ROCK, true)!!) }
     var currentHumanisation by remember { mutableStateOf(HumanisationLevel.OFF) } // made by Claude 11/07
     // made by Claude 11/07: Tracks current bar for progression display
     var currentBarIndex by remember { mutableStateOf(0) }
@@ -253,11 +249,6 @@ fun JamLabScreen() {
 
     val strumPatternOptions = remember(currentGenre, customStrumMode, currentTimeSignature) {
         buildPresetOptions(allGuitarPresets, currentGenre, currentTimeSignature, customStrumMode)
-    }
-
-// NEW: Drum presets filtered by genre (respects toggle)
-    val drumPatternOptions = remember(currentGenre, lockDrumGenre) {
-        getPresetsByGenre(currentGenre, lockToGenre = lockDrumGenre)
     }
 
     var selectedProgramByChannel by remember { mutableStateOf(mapOf<Int, Int>()) }
@@ -363,34 +354,6 @@ fun JamLabScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Drum Pattern", style = MaterialTheme.typography.labelSmall)
-        SimpleDropdown(
-            selected = currentDrumPreset.displayName,
-            options = drumPatternOptions.map { it.displayName },
-            onSelected = { displayName ->
-                currentDrumPreset = drumPatternOptions.find { it.displayName == displayName }
-                    ?: drumPatternOptions.firstOrNull() ?: getRandomPresetForGenre(currentGenre, lockDrumGenre)!!
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "Lock to Genre",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Switch(
-                checked = lockDrumGenre,
-                onCheckedChange = { lockDrumGenre = it }
-            )
-        }
 
         // Visual strumming arrow display
         // made by Claude 11/07: Hide strum display when guitar is in picking mode

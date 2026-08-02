@@ -18,15 +18,6 @@ import com.example.fretboardlayouts.theory.humaniseDuration // made by Claude 11
 import com.example.fretboardlayouts.theory.GrooveType       // made by Claude 11/07
 import com.example.fretboardlayouts.theory.grooveOffsetMs   // made by Claude 11/07
 import com.example.fretboardlayouts.theory.InstrumentRole  // made by Claude 11/07
-import com.example.fretboardlayouts.theory.ChordQuality    // made by Claude 11/07 — if not already imported
-import com.example.fretboardlayouts.theory.DrumPreset
-import com.example.fretboardlayouts.theory.allDrumPresets
-import com.example.fretboardlayouts.theory.beatTickToMs
-import com.example.fretboardlayouts.theory.getRandomPresetForGenre
-import com.example.fretboardlayouts.brain.*
-import com.example.fretboardlayouts.brain.BassBrain  // NEW
-import com.example.fretboardlayouts.brain.BassBar    // NEW
-import com.example.fretboardlayouts.brain.BassEvent  // NEW
 
 /**
  * The "Band-in-a-Box" style engine.
@@ -66,7 +57,6 @@ object StyleEngine {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
 
-        val bassBrain = BassBrain.forGenre(genre.name.lowercase()) // NEW made by Claude 25/07
         timeline.events.forEachIndexed { barIndex, event ->        // MODIFIED — forEach → forEachIndexed
             val chord = event.chord
             val startMs = event.startMs
@@ -79,14 +69,22 @@ object StyleEngine {
             val pianoRole  = instrumentRoles["piano"]   ?: InstrumentRole.OFF
             val stringsRole = instrumentRoles["strings"] ?: InstrumentRole.OFF
 
-            if (drumsRole != InstrumentRole.OFF) {
-                // TEST: Use DrumPreset instead of genre-based generation
-                val testDrumPreset = getRandomPresetForGenre(genre, lockToGenre = true) ?: allDrumPresets.first()
-                allEvents.addAll(generateDrumsFromPreset(testDrumPreset, startMs, durationMs, timeSignature))
-            }
+            // REVERTED 31/07 made by Claude — back past the whole Brain era (BassBrain,
+            // DrumBrain, density filters, kick-lock) AND past the 23/07 DrumPreset (193
+            // presets) system, to the original genre-keyed generateDrums()/generateBass().
+            // Reasoning: ensemble cohesion needs to be designed in via matched, deterministic
+            // patterns (kick/bass sharing beat 1&3, same principle ako/backing-tracks uses),
+            // not reconciled after the fact between independently-selected real recordings.
+            // See CLAUDE.md "Data Pipeline & Brain Architecture" and
+            // NEXT_SESSION_HANDOFF_BRAIN_REVERT.md for full reasoning. The brain/ package
+            // and theory/DrumPreset_clean.kt were fully deleted the same day, once the
+            // revert was confirmed working — recoverable from git history (commit
+            // c26a60e "Created brain package...") if ever needed again.
+            if (drumsRole != InstrumentRole.OFF)
+                allEvents.addAll(generateDrums(startMs, durationMs, genre, timeSignature))
 
-            if (bassRole != InstrumentRole.OFF)                                                          // MODIFIED made by Claude 25/07
-                allEvents.addAll(generateBassFromBrain(barIndex, startMs, durationMs, chord, bassBrain, timeSignature))
+            if (bassRole != InstrumentRole.OFF)
+                allEvents.addAll(generateBass(startMs, durationMs, chord, genre, timeSignature))
 
             if (guitarRole != InstrumentRole.OFF) {
                 if (pickingPreset != null && pickingPreset.layers.isNotEmpty()
@@ -304,83 +302,6 @@ object StyleEngine {
 
         return events
     }
-// made by Claude: DrumPreset extraction adapter
-// Add this function to StyleEngine.kt (after the existing generateDrums function)
-
-    private fun generateDrumsFromPreset(
-        preset: DrumPreset,
-        startMs: Long,
-        durationMs: Long,
-        timeSignature: TimeSignature
-    ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-
-        // Determine ticksPerBeat based on grooveFactor
-        // Low groove (straight): ticksPerBeat = 4 (sixteenth-note grid)
-        // High groove (swing): ticksPerBeat = 3 (triplet grid)
-        val ticksPerBeat = if (preset.grooveFactor > 0.25f) 3 else 4
-
-        // Convert 1-9 velocity scale to 1-127 MIDI scale
-        fun velocityCharToMidi(char: Char): Int {
-            val v = char.toString().toIntOrNull() ?: 0
-            return (v * 14).coerceIn(1, 127)
-        }
-
-        // Convert simple x_x_ pattern to events with per-note velocities
-        fun renderPatternWithVelocity(
-            pattern: String,
-            velocityPattern: String,
-            pitch: Int,
-            noteLengthMs: Int
-        ) {
-            for (i in pattern.indices) {
-                if (pattern[i] == '_') continue  // Skip rests
-
-                val velocity = if (i < velocityPattern.length) {
-                    velocityCharToMidi(velocityPattern[i])
-                } else {
-                    80
-                }
-
-                val beat = i / ticksPerBeat
-                val tickInBeat = i % ticksPerBeat
-
-                events.add(
-                    BackingTrackGenerator.MidiNoteEvent(
-                        startMs + beatTickToMs(beat, tickInBeat, ticksPerBeat, timeSignature, durationMs),
-                        9, pitch, velocity, noteLengthMs  // Channel 9 = drums
-                    )
-                )
-            }
-        }
-
-        // Generate kick drum (MIDI pitch 36)
-        renderPatternWithVelocity(
-            preset.kickPattern,
-            preset.kickVelocity,
-            pitch = 36,
-            noteLengthMs = 100
-        )
-
-        // Generate snare drum (MIDI pitch 38)
-        renderPatternWithVelocity(
-            preset.snarePattern,
-            preset.snareVelocity,
-            pitch = 38,
-            noteLengthMs = 100
-        )
-
-        // Generate hi-hat (MIDI pitch 42 = closed hi-hat)
-        renderPatternWithVelocity(
-            preset.hihatPattern,
-            preset.hihatVelocity,
-            pitch = 42,
-            noteLengthMs = 40  // Hi-hat is shorter
-        )
-
-        return events
-    }
-
     // ─── BASS ────────────────────────────────────────────────────────────────
 
     private fun generateBass(
@@ -429,94 +350,6 @@ object StyleEngine {
         return events
     }
 
-    // ─── BASS (Brain) ────────────────────────────────────────────────────────
-    // made by Claude 25/07 — replaces generateBass() with pattern-based generation
-    // from the Lakh MIDI Dataset. generateBass() is kept below as a revert fallback.
-
-    /**
-     * Generates bass using a pattern learned from 810,587 real bass performances.
-     *
-     * The same BassBrain is shared across all bars in this call to generateAccompaniment,
-     * so the groove is consistent across the whole progression loop.
-     *
-     * The pattern is key-independent — BassBrain transposes it to the active
-     * chord root on each bar, so the same groove adapts to every chord change.
-     *
-     * @param barIndex     Position of this chord in the loop (0-indexed)
-     * @param startMs      Absolute start time of this bar in the timeline
-     * @param durationMs   Duration of this bar (used to derive tempo)
-     * @param chord        Active chord (provides rootPitchClass for transposition)
-     * @param brain        BassBrain instance (created once per generateAccompaniment call)
-     * @param timeSignature Current time signature
-     */
-    private fun generateBassFromBrain( // made by Claude 25/07
-        barIndex: Int,
-        startMs: Long,
-        durationMs: Long,
-        chord: ResolvedChord,
-        brain: BassBrain,
-        timeSignature: TimeSignature
-    ): List<BackingTrackGenerator.MidiNoteEvent> {
-
-        // Derive tempo from bar duration — keeps us in sync with the timeline
-        // without needing tempo as a separate parameter in generateAccompaniment
-        val msPerBeat = durationMs.toDouble() / timeSignature.beatsPerBar
-        val tempo = (60_000.0 / msPerBeat).toInt().coerceIn(40, 300)
-
-        // Use existing findBassPitch to get chord root in bass register (MIDI 28–40)
-        // — consistent with the convention used throughout StyleEngine
-        val chordRootMidi = findBassPitch(chord.rootPitchClass)
-
-        // Generate one bar — same pattern, transposed to this chord's root
-        val bar = brain.generateBar(
-            barNumber     = barIndex,
-            chordRootMidi = chordRootMidi,
-            tempo         = tempo
-        )
-
-        return convertBassBarToMidi(bar, startMs, msPerBeat)
-    }
-
-    /**
-     * Converts a BassBar (brain output) into MidiNoteEvents (audio engine input).
-     *
-     * Step → timestamp: event.step maps to the 16th note grid position in the bar.
-     * Sub-step precision: event.timingOffset carries sub-step positioning for
-     * 32nd note patterns and will also carry humanisation offsets in future.
-     *
-     * Duration: durationSteps × msPerStep, clamped to [30ms, half bar].
-     * Channel 1 = Bass (standard MIDI, as per BackingTrackGenerator convention).
-     */
-    private fun convertBassBarToMidi( // made by Claude 25/07
-        bar: BassBar,
-        barStartMs: Long,
-        msPerBeat: Double
-    ): List<BackingTrackGenerator.MidiNoteEvent> {
-
-        if (bar.events.isEmpty()) return emptyList()
-
-        val msPerStep    = msPerBeat / 4.0          // 16th note = 1 step
-        val maxNoteMs    = (msPerBeat * 2).toLong() // cap at half a bar
-
-        return bar.sortedEvents().map { event ->
-
-            val timeMs = (barStartMs + event.step * msPerStep + event.timingOffset)
-                .toLong()
-                .coerceAtLeast(barStartMs)
-
-            val durationMs = (event.durationSteps * msPerStep)
-                .toLong()
-                .coerceIn(30L, maxNoteMs)
-
-            BackingTrackGenerator.MidiNoteEvent(
-                timeMs     = timeMs,
-                channel    = 1,              // Bass channel (0=Guitar, 1=Bass, 9=Drums)
-                pitch      = event.midiNote, // already clamped to bass register by BassBrain
-                velocity   = event.velocity,
-                durationMs = durationMs.toInt()
-            )
-        }
-    }
 
     // ─── GUITAR ──────────────────────────────────────────────────────────────
 
@@ -543,25 +376,25 @@ object StyleEngine {
         // Note: renderPickingPreset doesn't exist yet, I'll use a logic similar to renderPreset but for strings
         val shape = timeSignature.shape()
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        
+
         preset.layers.forEach { layer ->
             val patternStr = layer.patternByShape[shape] ?: return@forEach
             val stringsStr = layer.stringsByShape[shape] ?: return@forEach
-            
+
             val pattern = parsePattern(patternStr)
             val strings = com.example.fretboardlayouts.theory.parseStrings(stringsStr)
-            
+
             pattern.forEachIndexed { tick, state ->
                 if (state == com.example.fretboardlayouts.theory.SlotState.REST) return@forEachIndexed
                 val velocity = if (state == com.example.fretboardlayouts.theory.SlotState.ACCENT) layer.accentVelocity else layer.normalVelocity
-                
+
                 val stringIdx = strings.getOrNull(tick) ?: return@forEachIndexed
                 if (stringIdx < 0 || stringIdx >= voicing.size) return@forEachIndexed
-                
+
                 val pitch = voicing[stringIdx]
                 val beat = tick / layer.ticksPerBeat
                 val tickInBeat = tick % layer.ticksPerBeat
-                
+
                 events.add(
                     BackingTrackGenerator.MidiNoteEvent(
                         startMs + com.example.fretboardlayouts.theory.beatTickToMs(beat, tickInBeat, layer.ticksPerBeat, timeSignature, durationMs),
