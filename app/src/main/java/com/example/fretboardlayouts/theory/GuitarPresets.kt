@@ -434,8 +434,75 @@ val jazzBossaPreset = StrumPreset(
     ))
 )
 
+// ─── SKA ─────────────────────────────────────────────────────────────────────
+// NEW made by Claude 05/08/2026
+// Off-beats ONLY — the defining ska guitar sound. Downbeats are always silent.
+val skaSkankPreset = StrumPreset(
+    name = "Ska Skank",
+    applicableGenres = setOf(Genre.SKA),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "_x_x_x_x",    // 8 slots, off-beats only
+            MeterShape.THREE_BEAT to "_x_x_x",       // 6 slots
+            MeterShape.FIVE_BEAT  to "_x_x_x_x_x"   // 10 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "_d_d_d_d",
+            MeterShape.THREE_BEAT to "_d_d_d",
+            MeterShape.FIVE_BEAT  to "_d_d_d_d_d"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.FULL,
+        normalVelocity = 75, accentVelocity = 75   // flat — ska is mechanically consistent
+    ))
+)
+
+// ─── REGGAE ──────────────────────────────────────────────────────────────────
+// NEW made by Claude 05/08/2026
+// Off-beat chops only. The & of beat 2 is accented — leads into the one-drop on beat 3.
+val reggaeChopPreset = StrumPreset(
+    name = "Reggae Chop",
+    applicableGenres = setOf(Genre.REGGAE),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "_x_<x>_x_x",   // 8 slots, & of beat 2 accented
+            MeterShape.THREE_BEAT to "_x_x_x",        // 6 slots
+            MeterShape.FIVE_BEAT  to "_x_<x>_x_x_x"  // 10 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "_d_d_d_d",
+            MeterShape.THREE_BEAT to "_d_d_d",
+            MeterShape.FIVE_BEAT  to "_d_d_d_d_d"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.TOP_FOUR,
+        normalVelocity = 65, accentVelocity = 90
+    ))
+)
+
+// ─── DISCO ───────────────────────────────────────────────────────────────────
+// NEW made by Claude 05/08/2026
+// Strong stab on every quarter note, lighter ghost hit on the &. Punchy, not ringy.
+val discoStrumPreset = StrumPreset(
+    name = "Disco",
+    applicableGenres = setOf(Genre.DISCO),
+    layers = listOf(StrumLayer(
+        patternByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "<x>x<x>x<x>x<x>x",    // 8 slots
+            MeterShape.THREE_BEAT to "<x>x<x>x<x>x",         // 6 slots
+            MeterShape.FIVE_BEAT  to "<x>x<x>x<x>x<x>x<x>x" // 10 slots
+        ),
+        directionsByShape = mapOf(
+            MeterShape.FOUR_BEAT  to "dddddddd",
+            MeterShape.THREE_BEAT to "dddddd",
+            MeterShape.FIVE_BEAT  to "dddddddddd"
+        ),
+        ticksPerBeat = 2, voicingSubset = VoicingSubset.FULL,
+        normalVelocity = 60, accentVelocity = 88
+    ))
+)
+
 // ─── REGISTRY ────────────────────────────────────────────────────────────────
 
+// ─── REGISTRY ────────────────────────────────────────────────────────────────
 val allGuitarPresets: List<StrumPreset> = listOf(
     // Rock
     rockStandardPreset, rockDrivingPreset, rockBalladPreset,
@@ -450,7 +517,9 @@ val allGuitarPresets: List<StrumPreset> = listOf(
     funkScratchPreset, funkHeavyPreset, funkGroovePreset,
     // Jazz
     jazzFreddieGreenPreset, jazzCompPreset, jazzBalladPreset,
-    jazzBossaPreset                                    // made by Claude 11/07
+    jazzBossaPreset,                                   // made by Claude 11/07
+    // Ska / Reggae / Disco                            // NEW made by Claude 05/08/2026
+    skaSkankPreset, reggaeChopPreset, discoStrumPreset
 )
 
 fun isApplicable(preset: StrumPreset, genre: Genre): Boolean =

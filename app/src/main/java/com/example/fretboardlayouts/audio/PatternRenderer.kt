@@ -131,7 +131,7 @@ private fun addStrum(
     // made by Claude 11/07: note rings for its slot duration minus a small gap
     // gap prevents notes bleeding into the next hit unnaturally
     // coerceAtLeast(80) ensures very fast tempos/dense grids stay audible
-    val noteDurationMs = (slotDurationMs * 0.92f).toLong().coerceAtLeast(80L)
+    val noteDurationMs = (slotDurationMs * 0.65f).toLong().coerceAtLeast(50L) // MODIFIED made by Claude 03/08
 
     sortedPitches.forEachIndexed { i, pitch ->
         events.add(

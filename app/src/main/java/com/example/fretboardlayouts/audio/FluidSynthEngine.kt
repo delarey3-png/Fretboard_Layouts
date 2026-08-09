@@ -18,6 +18,8 @@ object FluidSynthEngine {
     external fun nativeNoteOn(channel: Int, key: Int, velocity: Int)
     external fun nativeNoteOff(channel: Int, key: Int)
     external fun nativeRender(buffer: ShortArray, numFrames: Int)
+    external fun nativeBankAndProgramChange(channel: Int, bank: Int, program: Int) // NEW made by Claude 05/08/2026
+    external fun nativeGetPresets(): String // NEW made by Claude 08/08/2026
 
     fun start(sf2Path: String): Boolean {
         // Check if thread is actually alive, not just flagged as running

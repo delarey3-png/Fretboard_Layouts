@@ -46,6 +46,16 @@ import com.example.fretboardlayouts.theory.InstrumentRole  // made by Claude 11/
  */
 object StyleEngine {
 
+    // NEW made by Claude 05/08/2026
+// Per-channel velocity multiplier — tuned by ear after initial values
+    private val channelVolumeScale = mapOf(
+        0 to 1.00f,  // Guitar  — reference level
+        1 to 0.88f,  // Bass    — slightly under guitar
+        2 to 0.80f,  // Piano
+        3 to 0.75f,  // Strings
+        9 to 0.95f   // Drums
+    )
+
     fun generateAccompaniment( // made by Claude 11/07: added humanisation
         timeline: JamTimeline,
         genre: Genre,
@@ -105,7 +115,10 @@ object StyleEngine {
         // made by Claude 11/07: Apply humanisation as post-processing step
         // Accent threshold >= 95 matches kick/accent velocities in all genre patterns
         // Each instrument rolls independently — same setting, different feel per channel
-        if (humanisationLevel == HumanisationLevel.OFF) return allEvents
+        // MODIFIED made by Claude 05/08/2026 — apply channel volume scaling even without humanisation
+        if (humanisationLevel == HumanisationLevel.OFF) return allEvents.map { event ->
+            event.copy(velocity = (event.velocity * (channelVolumeScale[event.channel] ?: 1.0f)).toInt().coerceIn(1, 127))
+        }
         val humanProfile = humanisationProfile(humanisationLevel)
 
         // made by Claude 11/07: Groove template — consistent genre feel on top of random variation
@@ -118,12 +131,13 @@ object StyleEngine {
             val isAccent = event.velocity >= 95
             val groove = grooveOffsetMs(event.timeMs, beatDurationMs, grooveType, event.channel)
             event.copy(
-                velocity = humaniseVelocity(
+                // MODIFIED made by Claude 05/08/2026 — scale after humanisation so channel balance survives velocity variation
+                velocity = (humaniseVelocity(
                     baseVelocity = event.velocity,
                     channel = event.channel,
                     isAccent = isAccent,
                     profile = humanProfile
-                ),
+                ) * (channelVolumeScale[event.channel] ?: 1.0f)).toInt().coerceIn(1, 127),
                 timeMs = (humaniseTiming(
                     baseTimeMs = event.timeMs,
                     channel = event.channel,
@@ -145,6 +159,9 @@ object StyleEngine {
         Genre.FUNK    -> GrooveType.LAID_BACK  // subtle pocket feel
         Genre.ROCK    -> GrooveType.STRAIGHT   // tight on the beat
         Genre.COUNTRY -> GrooveType.PUSHED     // train-beat forward drive
+        Genre.DISCO   -> GrooveType.STRAIGHT   // four-on-the-floor is metronomically rigid // NEW made by Claude 05/08/2026
+        Genre.SKA     -> GrooveType.STRAIGHT   // ska is mechanically precise // NEW made by Claude 05/08/2026
+        Genre.REGGAE  -> GrooveType.LAID_BACK  // behind-the-beat spacious feel // NEW made by Claude 05/08/2026
     }
     // ─── DRUMS ───────────────────────────────────────────────────────────────
 
@@ -245,58 +262,169 @@ object StyleEngine {
                 events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 100, 100, noteLengthMs = 100, ticksPerBeat = 4))
             }
 
-            // ── BLUES ─────────────────────────────────────────────────────────
-            // Feel: shuffle/swing triplet grid. tpb=3 (triplet subdivisions).
-            // Each beat = 3 slots: slot 0 = downbeat, slot 1 = skipped, slot 2 = upbeat "and"
-            // beat1=slot0, beat2=slot3, beat3=slot6, beat4=slot9
+            // ── BLUES ─────────────────────────────────────────────────────────────
+// Feel: shuffle/swing triplet grid. tpb=3 (triplet subdivisions).
+// Each beat = 3 slots: slot 0 = downbeat, slot 1 = skipped, slot 2 = upbeat "and"
+// beat1=slot0, beat2=slot3, beat3=slot6, beat4=slot9
             Genre.BLUES -> {
-                // Ride cymbal: classic shuffle swing — downbeat + upbeat of each beat
-                // Produces the swung 8th "da-da-DUM" feel
+                // Ride cymbal (closed HH): classic shuffle — downbeat + upbeat of each beat
                 val ride = parsePattern(when (b) {
-                    3    -> "<x>_x<x>_x<x>_x"              // 9 slots ✓
-                    5    -> "<x>_x<x>_x<x>_x<x>_x<x>_x"   // 15 slots ✓
-                    else -> "<x>_x<x>_x<x>_x<x>_x"         // 12 slots ✓
+                    3    -> "<x>_x<x>_x<x>_x"
+                    5    -> "<x>_x<x>_x<x>_x<x>_x<x>_x"
+                    else -> "<x>_x<x>_x<x>_x<x>_x"
                 })
                 events.addAll(renderVoice(ride, startMs, durationMs, timeSignature, 9, 42, 60, 75, ticksPerBeat = 3))
-
+                // Open hi-hat: triplet upbeat of each beat — the shuffle shimmer // NEW made by Claude 05/08
+                val openHH = parsePattern(when (b) {
+                    3    -> "__x__x__x"
+                    5    -> "__x__x__x__x__x"
+                    else -> "__x__x__x__x"
+                })
+                events.addAll(renderVoice(openHH, startMs, durationMs, timeSignature, 9, 46, 68, 68, noteLengthMs = 80, ticksPerBeat = 3))
                 // Kick: beats 1 and 3
                 val kick = parsePattern(when (b) {
-                    3    -> "<x>________"                   // 9 slots, beat 1 only ✓
-                    5    -> "<x>_____x_____x__"             // 15 slots, beats 1,3,5 ✓
-                    else -> "<x>_____x_____"                // 12 slots, beats 1&3 ✓
+                    3    -> "<x>________"
+                    5    -> "<x>_____x_____x__"
+                    else -> "<x>_____x_____"
                 })
                 events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 90, 100, noteLengthMs = 100, ticksPerBeat = 3))
-
                 // Snare: beats 2 and 4
                 val snare = parsePattern(when (b) {
-                    3    -> "___x_____"                     // 9 slots, beat 2 only ✓
-                    5    -> "___x_____x_____"               // 15 slots, beats 2&4 ✓
-                    else -> "___x_____x__"                  // 12 slots, beats 2&4 ✓
+                    3    -> "___x_____"
+                    5    -> "___x_____x_____"
+                    else -> "___x_____x__"
                 })
                 events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 3))
+                // Ghost snare: soft hit on upbeat before beats 2 and 4 // NEW made by Claude 05/08
+                val ghostSnare = parsePattern(when (b) {
+                    3    -> "__x______"
+                    5    -> "__x_____x______"
+                    else -> "__x_____x___"
+                })
+                events.addAll(renderVoice(ghostSnare, startMs, durationMs, timeSignature, 9, 38, 32, 32, noteLengthMs = 50, ticksPerBeat = 3))
             }
 
-            // ── JAZZ ─────────────────────────────────────────────────────────
+            // ── JAZZ ─────────────────────────────────────────────────────────────
             // Feel: swing ride pattern, hihat pedal on 2&4. tpb=3 (triplet grid).
-            // Ride: beat + "and" of beat, but skipping "and" of 2 and 4 for swing lilt.
-            // beat1=slot0, beat2=slot3, beat3=slot6, beat4=slot9
             Genre.JAZZ -> {
-                // Ride: classic jazz swing ride — "ding-da-ding ... ding-da-ding"
-                // Hits on: beat1(0), and-of-1(2), beat2(3), beat3(6), and-of-3(8), beat4(9)
+                // Ride: classic jazz swing — "ding-da-ding ... ding-da-ding"
                 val ride = parsePattern(when (b) {
-                    3    -> "<x>_x<x>_____"                 // 9 slots: beat1, and1, beat2 ✓
-                    5    -> "<x>_x<x>__<x>_x<x>__<x>__"    // 15 slots ✓
-                    else -> "<x>_x<x>__<x>_x<x>__"         // 12 slots ✓
+                    3    -> "<x>_x<x>_____"
+                    5    -> "<x>_x<x>__<x>_x<x>__<x>__"
+                    else -> "<x>_x<x>__<x>_x<x>__"
                 })
                 events.addAll(renderVoice(ride, startMs, durationMs, timeSignature, 9, 51, 55, 70, noteLengthMs = 100, ticksPerBeat = 3))
-
-                // Hihat pedal: beats 2 and 4 (the "chick" on 2&4)
+                // Hi-hat pedal: beats 2 and 4
                 val hihat = parsePattern(when (b) {
-                    3    -> "___x_____"                     // 9 slots, beat 2 only ✓
-                    5    -> "___x_____x_____"               // 15 slots, beats 2&4 ✓
-                    else -> "___x_____x__"                  // 12 slots, beats 2&4 ✓
+                    3    -> "___x_____"
+                    5    -> "___x_____x_____"
+                    else -> "___x_____x__"
                 })
                 events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 44, 80, 80, noteLengthMs = 50, ticksPerBeat = 3))
+                // Sparse kick: beat 1 only — jazz convention // NEW made by Claude 05/08
+                val kick = parsePattern(when (b) {
+                    3    -> "<x>________"
+                    5    -> "<x>_____x_______"
+                    else -> "<x>_________"
+                })
+                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 65, 75, noteLengthMs = 100, ticksPerBeat = 3))
+            }
+            // ── DISCO ────────────────────────────────────────────────────────────
+            // Feel: four-on-the-floor kick, dense 16th HH, open HH on & of each beat.
+            // tpb=4 (sixteenth-note grid)
+            // NEW made by Claude 05/08/2026
+            Genre.DISCO -> {
+                // Kick: every beat — the four-on-the-floor foundation
+                val kick = parsePattern(when (b) {
+                    3    -> "<x>___<x>___<x>___"              // 12 slots ✓
+                    5    -> "<x>___<x>___<x>___<x>___<x>___"  // 20 slots ✓
+                    else -> "<x>___<x>___<x>___<x>___"        // 16 slots ✓
+                })
+                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 100, 105, noteLengthMs = 100, ticksPerBeat = 4))
+                // Snare: beats 2 and 4
+                val snare = parsePattern(when (b) {
+                    3    -> "____<x>_______"                  // 12 slots ✓
+                    5    -> "____<x>_______<x>_______"        // 20 slots ✓
+                    else -> "____<x>_______<x>___"            // 16 slots ✓
+                })
+                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 4))
+                // Closed HH: every 16th note — the disco engine room
+                val hhClosed = parsePattern(when (b) {
+                    3    -> "xxxxxxxxxxxx"                    // 12 slots ✓
+                    5    -> "xxxxxxxxxxxxxxxxxxxx"            // 20 slots ✓
+                    else -> "xxxxxxxxxxxxxxxx"                // 16 slots ✓
+                })
+                events.addAll(renderVoice(hhClosed, startMs, durationMs, timeSignature, 9, 42, 55, 55, noteLengthMs = 40, ticksPerBeat = 4))
+                // Open HH: & of each beat — the shimmer that defines disco
+                val hhOpen = parsePattern(when (b) {
+                    3    -> "__x___x___x_"                   // 12 slots ✓
+                    5    -> "__x___x___x___x___x_"           // 20 slots ✓
+                    else -> "__x___x___x___x_"               // 16 slots ✓
+                })
+                events.addAll(renderVoice(hhOpen, startMs, durationMs, timeSignature, 9, 46, 82, 82, noteLengthMs = 70, ticksPerBeat = 4))
+            }
+            // ── SKA ──────────────────────────────────────────────────────────────
+            // Feel: rock kick/snare placement, but HH off-beats are LOUDER than downbeats.
+            // tpb=4 (sixteenth-note grid)
+            // NEW made by Claude 05/08/2026
+            Genre.SKA -> {
+                // Kick: beats 1 and 3 (same positions as rock)
+                val kick = parsePattern(when (b) {
+                    3    -> "<x>___________"                  // 12 slots ✓
+                    5    -> "<x>_______x___________"          // 20 slots ✓
+                    else -> "<x>_______x_______"              // 16 slots ✓
+                })
+                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 95, 105, noteLengthMs = 100, ticksPerBeat = 4))
+                // Snare: beats 2 and 4, slightly harder than rock
+                val snare = parsePattern(when (b) {
+                    3    -> "____<x>_______"                  // 12 slots ✓
+                    5    -> "____<x>_______<x>_______"        // 20 slots ✓
+                    else -> "____<x>_______<x>___"            // 16 slots ✓
+                })
+                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 100, 100, noteLengthMs = 100, ticksPerBeat = 4))
+                // Hi-hat: 8th notes, off-beats LOUDER than downbeats (inverted accent)
+                // x=downbeat (normalVelocity=62), <x>=off-beat (accentVelocity=85)
+                val hihat = parsePattern(when (b) {
+                    3    -> "x_<x>_x_<x>_x_<x>_"             // 12 slots ✓
+                    5    -> "x_<x>_x_<x>_x_<x>_x_<x>_x_<x>_" // 20 slots ✓
+                    else -> "x_<x>_x_<x>_x_<x>_x_<x>_"       // 16 slots ✓
+                })
+                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 62, 85, noteLengthMs = 60, ticksPerBeat = 4))
+            }
+            // ── REGGAE ───────────────────────────────────────────────────────────
+            // Feel: one-drop — kick+snare on beat 3 ONLY. Beat 1 kick is ABSENT.
+            // Off-beat HH only. Maximum space. tpb=4 (sixteenth-note grid)
+            // NEW made by Claude 05/08/2026
+            Genre.REGGAE -> {
+                // Kick: beat 3 ONLY — the silence on beat 1 is the whole point
+                val kick = parsePattern(when (b) {
+                    3    -> "________<x>___"                  // 12 slots ✓
+                    5    -> "________<x>___________"          // 20 slots ✓
+                    else -> "________<x>_______"              // 16 slots ✓
+                })
+                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 88, 95, noteLengthMs = 100, ticksPerBeat = 4))
+                // Snare: beat 3 (lands with kick — the one-drop hit)
+                val snare = parsePattern(when (b) {
+                    3    -> "________x___"                    // 12 slots ✓
+                    5    -> "________x___________"            // 20 slots ✓
+                    else -> "________x_______"                // 16 slots ✓
+                })
+                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 4))
+                // Ghost snare: soft hit on beat 4 (not applicable in 3/4)
+                if (b != 3) {
+                    val ghostSnare = parsePattern(when (b) {
+                        5    -> "____________x_______"        // 20 slots ✓
+                        else -> "____________x___"            // 16 slots ✓
+                    })
+                    events.addAll(renderVoice(ghostSnare, startMs, durationMs, timeSignature, 9, 38, 50, 50, noteLengthMs = 80, ticksPerBeat = 4))
+                }
+                // Hi-hat: off-beats ONLY — no downbeat hats (adds to the spacious feel)
+                val hihat = parsePattern(when (b) {
+                    3    -> "__x___x___x_"                    // 12 slots ✓
+                    5    -> "__x___x___x___x___x_"            // 20 slots ✓
+                    else -> "__x___x___x___x_"                // 16 slots ✓
+                })
+                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 70, 70, noteLengthMs = 60, ticksPerBeat = 4))
             }
         }
 
@@ -322,11 +450,14 @@ object StyleEngine {
                 events.addAll(renderPitchSequence(pattern, listOf(root, fifth), startMs, durationMs, timeSignature, 1, 87, 95, noteLengthMs = 400, ticksPerBeat = 1))
             }
             Genre.BLUES -> {
-                // Walking bass fragment: root-third-fifth-sixth
-                val third = findBassPitch((chord.rootPitchClass + chord.quality.intervals[1]) % 12)
-                val sixth = findBassPitch((chord.rootPitchClass + 9) % 12)
-                val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
-                events.addAll(renderPitchSequence(pattern, listOf(root, third, fifth, sixth), startMs, durationMs, timeSignature, 1, 90, 95, noteLengthMs = 400, ticksPerBeat = 1))
+                // MODIFIED made by Claude 05/08/2026
+                // Boogie bass: R-R-5th-6th-b7th-6th-5th-5th (John Lee Hooker driving pattern)
+                // Replaces walking quarter-note bass which was too jazz-flavoured for blues
+                val sixth    = findBassPitch((chord.rootPitchClass + 9) % 12)
+                val bSeventh = findBassPitch((chord.rootPitchClass + 10) % 12)
+                val pattern  = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar * 2 - 1))
+                val pitches  = listOf(root, root, fifth, sixth, bSeventh, sixth, fifth, fifth)
+                events.addAll(renderPitchSequence(pattern, pitches, startMs, durationMs, timeSignature, 1, 75, 88, noteLengthMs = 200, ticksPerBeat = 2))
             }
             Genre.FUNK -> {
                 // Syncopated slap bass: root, root, octave pop, fifth
@@ -340,10 +471,34 @@ object StyleEngine {
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
                 events.addAll(renderPitchSequence(pattern, listOf(root, third, fifth, sixth), startMs, durationMs, timeSignature, 1, 85, 90, noteLengthMs = 400, ticksPerBeat = 1))
             }
-            else -> {
-                // Rock: pedal root notes on the 8th-note grid
-                val pattern = parsePattern("x".repeat(timeSignature.beatsPerBar * 2))
-                events.addAll(renderVoice(pattern, startMs, durationMs, timeSignature, 1, root, 85, 85, noteLengthMs = 200, ticksPerBeat = 2))
+            Genre.ROCK -> {
+                // NEW made by Claude 05/08/2026
+                // Alternating root-fifth, one hit per beat — same shape as Country but heavier touch
+                val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
+                events.addAll(renderPitchSequence(pattern, listOf(root, fifth), startMs, durationMs, timeSignature, 1, 92, 100, noteLengthMs = 400, ticksPerBeat = 1))
+            }
+            Genre.DISCO -> {
+                // NEW made by Claude 05/08/2026
+                // Pumping octave bass: alternating root / root+octave on 8th grid
+                val pitches = (0 until timeSignature.beatsPerBar).flatMap { listOf(root, root + 12) }
+                val pattern = parsePattern("<x>x".repeat(timeSignature.beatsPerBar))
+                events.addAll(renderPitchSequence(pattern, pitches, startMs, durationMs, timeSignature, 1, 75, 92, noteLengthMs = 180, ticksPerBeat = 2))
+            }
+            Genre.SKA -> {
+                // NEW made by Claude 05/08/2026
+                // Walking bass with octave jump: R-5th-R+oct-5th cycle on 8th grid
+                val pattern = parsePattern("<x>x".repeat(timeSignature.beatsPerBar))
+                events.addAll(renderPitchSequence(pattern, listOf(root, fifth, root + 12, fifth), startMs, durationMs, timeSignature, 1, 75, 87, noteLengthMs = 300, ticksPerBeat = 2))
+            }
+            Genre.REGGAE -> {
+                // NEW made by Claude 05/08/2026
+                // One-drop bass: root on beat 1, fifth on beat 3, maximum space
+                val pattern = parsePattern(when (timeSignature.beatsPerBar) {
+                    3    -> "<x>_x"   // 3 slots ✓
+                    5    -> "<x>_x__" // 5 slots ✓
+                    else -> "<x>_x_"  // 4 slots ✓
+                })
+                events.addAll(renderPitchSequence(pattern, listOf(root, fifth), startMs, durationMs, timeSignature, 1, 80, 87, noteLengthMs = 600, ticksPerBeat = 1))
             }
         }
 
@@ -477,6 +632,19 @@ object StyleEngine {
                     Genre.ROCK -> // Beats 1 and 3 — downbeat emphasis
                         listOf(1, 3).filter { it <= b }
                             .map { beat -> Pair(startMs + (beat - 1) * beatMs, 70) }
+                    Genre.DISCO -> // Every beat — stabs lock with the four-on-the-floor kick // NEW made by Claude 05/08/2026
+                        (1..b).map { beat ->
+                            Pair(startMs + (beat - 1) * beatMs, 72)
+                        }
+
+                    Genre.SKA -> // Off-beat stabs — match the guitar skank // NEW made by Claude 05/08/2026
+                        (1..b).map { beat ->
+                            Pair(startMs + (beat - 1) * beatMs + beatMs / 2, 68)
+                        }
+
+                    Genre.REGGAE -> // Sparse off-beat chops — beats 2 and 4 only // NEW made by Claude 05/08/2026
+                        listOf(2, 4).filter { it <= b }
+                            .map { beat -> Pair(startMs + (beat - 1) * beatMs + beatMs / 2, 60) }
                 }
                 val noteDurationMs = (beatMs * 0.9f).toInt().coerceAtLeast(80)
                 hits.forEach { (timeMs, velocity) ->

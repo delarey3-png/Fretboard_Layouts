@@ -92,7 +92,7 @@ class MidiPlayer(private val context: Context) {
     }
 
     private fun copySoundFontToInternalStorage(): String? {
-        val fileName = "Musyng_Kite.sf2"
+        val fileName = "ljam_core.sf2"
         val destFile = File(context.filesDir, fileName)
         try {
             Log.i(TAG, "Checking SoundFont...")

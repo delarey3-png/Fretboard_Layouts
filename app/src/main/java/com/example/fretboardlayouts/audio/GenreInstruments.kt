@@ -25,5 +25,8 @@ object GenreInstruments {
         Genre.COUNTRY -> GenreInstrumentation(guitarProgram = 25, bassProgram = 32, drumKitProgram = 0)
         Genre.FUNK    -> GenreInstrumentation(guitarProgram = 28, bassProgram = 36, drumKitProgram = 24)
         Genre.JAZZ    -> GenreInstrumentation(guitarProgram = 26, bassProgram = 32, drumKitProgram = 40)
+        Genre.DISCO   -> GenreInstrumentation(guitarProgram = 28, bassProgram = 35, drumKitProgram = 0) // NEW made by Claude 05/08/2026
+        Genre.SKA     -> GenreInstrumentation(guitarProgram = 29, bassProgram = 34, drumKitProgram = 0) // NEW made by Claude 05/08/2026
+        Genre.REGGAE  -> GenreInstrumentation(guitarProgram = 27, bassProgram = 33, drumKitProgram = 0) // NEW made by Claude 05/08/2026
     }
 }

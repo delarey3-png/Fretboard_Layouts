@@ -73,6 +73,7 @@ import com.example.fretboardlayouts.theory.buildVisualStrumState
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
 import com.example.fretboardlayouts.theory.InstrumentRole // made by Claude 11/07
+import kotlinx.coroutines.delay // NEW made by Claude 08/08/2026
 
 // ================================================================
 // TOP-LEVEL DEFINITIONS
@@ -98,36 +99,88 @@ val INSTRUMENT_DEFS = listOf(
     InstrumentDef("winds",   "Winds / Brass", "🎺", 4, supportsHybrid = false)
 )
 
+// NEW made by Claude 05/08/2026
+// PatchOption replaces bare Int program numbers — carries bank + program together
+data class PatchOption(val name: String, val bank: Int, val program: Int)
+
 val INSTRUMENT_PROGRAMS = mapOf(
     "guitar"  to listOf(
-        "Nylon" to 24, "Steel" to 25, "Jazz Elec" to 26,
-        "Clean" to 27, "Muted" to 28, "Overdrive" to 29, "Distortion" to 30
+        PatchOption("SGM Nylon",        0, 24),
+        PatchOption("Steel Sammy",      0, 25),
+        PatchOption("Fluid Jazz",       0, 26),
+        PatchOption("MK Clean",         0, 27),
+        PatchOption("Crisis Muted",     0, 28),
+        PatchOption("Arachno OD",       0, 29),
+        PatchOption("MK Jazz",          1, 26), // NEW made by Claude 05/08/2026
+        PatchOption("GS Chorused Cln",  1, 27), // NEW made by Claude 05/08/2026
+        PatchOption("Muted Metal",      1, 28), // NEW made by Claude 05/08/2026
+        PatchOption("Strix Shadowed",   2, 27), // NEW made by Claude 05/08/2026
+        PatchOption("Strix Brt Chorus", 3, 27)  // NEW made by Claude 05/08/2026
     ),
     "bass"    to listOf(
-        "Acoustic" to 32, "Fingered" to 33, "Picked" to 34,
-        "Fretless" to 35, "Slap" to 36
+        PatchOption("Crisis Acoustic",  0, 32),
+        PatchOption("Crisis Finger",    0, 33),
+        PatchOption("Crisis Pick",      0, 34),
+        PatchOption("Crisis Fretless",  0, 35),
+        PatchOption("Crisis Slap",      0, 36),
+        PatchOption("Fluid Pop",        0, 37),
+        PatchOption("GS Synth 1",       0, 38),
+        PatchOption("GS Synth 2",       0, 39),
+        PatchOption("Arachno Finger",   1, 33)  // NEW made by Claude 05/08/2026
     ),
     "drums"   to listOf(
-        "Standard" to 0, "Room" to 8, "Power" to 16,
-        "Electronic" to 24, "TR-808" to 25, "Jazz" to 32,
-        "Brush" to 40, "Orchestra" to 48
+        PatchOption("Standard",   0,   0), // MODIFIED made by Claude 05/08/2026 — bank 128 auto-selected by FluidSynth on ch9
+        PatchOption("Room",       0,   8),
+        PatchOption("Power",      0,  16),
+        PatchOption("TR-808",     0,  25),
+        PatchOption("Jazz",       0,  32),
+        PatchOption("Brush",      0,  40),
+        PatchOption("Orchestra",  0,  48)
     ),
     "piano"   to listOf(
-        "Grand Piano" to 0, "Bright Piano" to 1, "Electric Piano" to 4,
-        "Harpsichord" to 6, "Celesta" to 8, "Synth Pad" to 88,
-        "Synth Choir" to 91, "Bowed Glass" to 92
+        PatchOption("Grand Piano", 0,  0), PatchOption("Bright Piano", 0,  1),
+        PatchOption("Elec Piano",  0,  4), PatchOption("Harpsichord",  0,  6),
+        PatchOption("Celesta",     0,  8), PatchOption("Synth Pad",    0, 88),
+        PatchOption("Synth Choir", 0, 91), PatchOption("Bowed Glass",  0, 92)
     ),
     "strings" to listOf(
-        "Violin" to 40, "Viola" to 41, "Cello" to 42,
-        "Contrabass" to 43, "Tremolo" to 44, "Pizzicato" to 45,
-        "Harp" to 46, "Timpani" to 47
+        PatchOption("Violin",    0, 40), PatchOption("Viola",     0, 41),
+        PatchOption("Cello",     0, 42), PatchOption("Contrabass",0, 43),
+        PatchOption("Tremolo",   0, 44), PatchOption("Pizzicato", 0, 45),
+        PatchOption("Harp",      0, 46), PatchOption("Timpani",   0, 47)
     ),
     "winds"   to listOf(
-        "Flute" to 73, "Recorder" to 74, "Trumpet" to 56,
-        "Trombone" to 57, "Tuba" to 58, "French Horn" to 60,
-        "Alto Sax" to 65, "Soprano Sax" to 64
+        PatchOption("Flute",      0, 73), PatchOption("Recorder",   0, 74),
+        PatchOption("Trumpet",    0, 56), PatchOption("Trombone",   0, 57),
+        PatchOption("Tuba",       0, 58), PatchOption("French Horn",0, 60),
+        PatchOption("Alto Sax",   0, 65), PatchOption("Soprano Sax",0, 64)
     )
 )
+
+// NEW made by Claude 08/08/2026
+// Parses the raw pipe-delimited preset string from nativeGetPresets() into
+// a map of instrument key → patch list, filtered by GM program ranges.
+fun parsePresetsFromSF2(raw: String): Map<String, List<PatchOption>> {
+    if (raw.isEmpty()) return emptyMap()
+    val all = raw.split("|").mapNotNull { entry ->
+        val parts = entry.split(":", limit = 3)
+        if (parts.size < 3) null
+        else {
+            val bank    = parts[0].toIntOrNull() ?: return@mapNotNull null
+            val program = parts[1].toIntOrNull() ?: return@mapNotNull null
+            val name    = parts[2].trim().ifEmpty { "${bank}:${program}" }
+            PatchOption(name, bank, program)
+        }
+    }
+    return mapOf(
+        "guitar"  to all.filter { it.bank !in listOf(127, 128) && it.program in 24..31 },
+        "bass"    to all.filter { it.bank !in listOf(127, 128) && it.program in 32..39 },
+        "strings" to all.filter { it.bank !in listOf(127, 128) && it.program in 40..55 }, // MODIFIED made by Claude 08/08/2026 — added ensemble 48-55
+        "winds"   to all.filter { it.bank !in listOf(127, 128) && it.program in 56..79 },
+        "piano"   to all.filter { it.bank !in listOf(127, 128) && it.program in 0..23 },   // MODIFIED made by Claude 08/08/2026 — added organs 16-23
+        "drums"   to all.filter { it.bank == 128 }
+    )
+}
 
 // ================================================================
 // VISUAL STRUMMING DISPLAY
@@ -200,12 +253,31 @@ fun StrummingVisualDisplay(
  * Completely standalone, independent from MainViewModel.
  */
 class JamLabActivity : ComponentActivity() {
+    // NEW made by Claude 08/08/2026
+    // Keeps CPU running when screen turns off so audio continues during jamming
+    private lateinit var wakeLock: android.os.PowerManager.WakeLock
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Acquire wake lock — allows screen off but keeps audio running
+        val powerManager = getSystemService(POWER_SERVICE) as android.os.PowerManager
+        wakeLock = powerManager.newWakeLock(
+            android.os.PowerManager.PARTIAL_WAKE_LOCK,
+            "LetsJam::JamLabAudioWakeLock"
+        )
+        wakeLock.acquire(4 * 60 * 60 * 1000L) // 4 hour max — covers any reasonable jam session
         setContent {
             FretboardLayoutsTheme {
                 JamLabScreen()
             }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Release wake lock when activity closes — don't drain battery unnecessarily
+        if (::wakeLock.isInitialized && wakeLock.isHeld) {
+            wakeLock.release()
         }
     }
 }
@@ -218,6 +290,12 @@ class JamLabActivity : ComponentActivity() {
 fun JamLabScreen() {
     val context = LocalContext.current
     val audioEngine = remember { JamLabAudioEngine(context) }
+
+    // NEW made by Claude 08/08/2026
+    // Read all presets from the loaded SF2 once at startup — no hardcoding needed
+    val availablePatches = remember(audioEngine) {
+        parsePresetsFromSF2(audioEngine.getRawPresets())
+    }
 
     // ══ LOCAL STATE (completely independent from MainViewModel) ══
     var currentGenre by remember { mutableStateOf(Genre.ROCK) }
@@ -251,7 +329,7 @@ fun JamLabScreen() {
         buildPresetOptions(allGuitarPresets, currentGenre, currentTimeSignature, customStrumMode)
     }
 
-    var selectedProgramByChannel by remember { mutableStateOf(mapOf<Int, Int>()) }
+    var selectedPatchByChannel by remember { mutableStateOf(mapOf<Int, PatchOption>()) } // MODIFIED made by Claude 05/08/2026
     var isPlaying by remember { mutableStateOf(false) }
     var showGeneratingMessage by remember { mutableStateOf(false) }
     var currentTimeline by remember { mutableStateOf<JamTimeline?>(null) }
@@ -509,11 +587,12 @@ fun JamLabScreen() {
                 onStrumSelected = { currentStrumPreset = it },
                 selectedPickingPreset = currentPickingPreset,
                 onPickingSelected = { currentPickingPreset = it },
-                selectedProgram = selectedProgramByChannel[selectedDef.channel],
-                onProgramSelected = { program ->
-                    selectedProgramByChannel =
-                        selectedProgramByChannel + (selectedDef.channel to program)
+                selectedPatch = selectedPatchByChannel[selectedDef.channel],
+                onPatchSelected = { patch ->
+                    selectedPatchByChannel =
+                        selectedPatchByChannel + (selectedDef.channel to patch)
                 },
+                availablePatches = availablePatches, // NEW made by Claude 08/08/2026
                 audioEngine = audioEngine
             )
         }
@@ -571,54 +650,39 @@ private fun PlaybackLoopJamLabHandler(
     }
 
     LaunchedEffect(Unit) {
-        val startTime = withFrameMillis { it }
+        // MODIFIED made by Claude 08/08/2026
+        // Replaced withFrameMillis (display-tied, stops when screen off) with
+        // System.currentTimeMillis() + delay() — keeps running with screen off
+        val startTime = System.currentTimeMillis()
         while (true) {
-            withFrameMillis { frameTime ->
-                val currentTimeMs = frameTime - startTime
-                val loopTime = currentTimeMs % timeline.loopDurationMs
-
-                // made by Claude 11/07: Surface current bar index to UI
-                val currentBar = timeline.events
-                    .firstOrNull { loopTime >= it.startMs && loopTime < it.startMs + it.durationMs }
-                    ?.barIndex ?: 0
-                if (currentBar != lastBarIndexRef[0]) { // made by Claude 11/07
-                    lastBarIndexRef[0] = currentBar
-                    onBarChanged(currentBar)
-                }
-
-                if (lastSequencerLoopTime == -1L) {
-                    lastSequencerLoopTime = loopTime
-                    if (loopTime < 100) {
-                        backingTrackEvents
-                            .filter { it.timeMs == 0L && it.channel in activeChannels }
-                            .forEach { event ->
-                                audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                                pendingNoteOffs.add(PendingNoteOff(
-                                    event.channel, event.pitch, currentTimeMs + event.durationMs
-                                ))
-                            }
-                    }
-                }
-
-                if (loopTime < lastSequencerLoopTime) {
+            val frameTime = System.currentTimeMillis()
+            val currentTimeMs = frameTime - startTime
+            val loopTime = currentTimeMs % timeline.loopDurationMs
+            // Surface current bar index to UI
+            val currentBar = timeline.events
+                .firstOrNull { loopTime >= it.startMs && loopTime < it.startMs + it.durationMs }
+                ?.barIndex ?: 0
+            if (currentBar != lastBarIndexRef[0]) {
+                lastBarIndexRef[0] = currentBar
+                onBarChanged(currentBar)
+            }
+            if (lastSequencerLoopTime == -1L) {
+                lastSequencerLoopTime = loopTime
+                if (loopTime < 100) {
                     backingTrackEvents
-                        .filter {
-                            it.timeMs > lastSequencerLoopTime && it.channel in activeChannels
-                        }
+                        .filter { it.timeMs == 0L && it.channel in activeChannels }
                         .forEach { event ->
                             audioEngine.noteOn(event.channel, event.pitch, event.velocity)
                             pendingNoteOffs.add(PendingNoteOff(
                                 event.channel, event.pitch, currentTimeMs + event.durationMs
                             ))
                         }
-                    lastSequencerLoopTime = -1L
                 }
-
+            }
+            if (loopTime < lastSequencerLoopTime) {
                 backingTrackEvents
                     .filter {
-                        it.timeMs > lastSequencerLoopTime &&
-                                it.timeMs <= loopTime &&
-                                it.channel in activeChannels
+                        it.timeMs > lastSequencerLoopTime && it.channel in activeChannels
                     }
                     .forEach { event ->
                         audioEngine.noteOn(event.channel, event.pitch, event.velocity)
@@ -626,17 +690,29 @@ private fun PlaybackLoopJamLabHandler(
                             event.channel, event.pitch, currentTimeMs + event.durationMs
                         ))
                     }
-
-                lastSequencerLoopTime = loopTime
-
-                if (pendingNoteOffs.isNotEmpty()) {
-                    val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs }
-                    if (dueOffs.isNotEmpty()) {
-                        dueOffs.forEach { audioEngine.noteOff(it.channel, it.pitch) }
-                        pendingNoteOffs.removeAll(dueOffs.toSet())
-                    }
+                lastSequencerLoopTime = -1L
+            }
+            backingTrackEvents
+                .filter {
+                    it.timeMs > lastSequencerLoopTime &&
+                            it.timeMs <= loopTime &&
+                            it.channel in activeChannels
+                }
+                .forEach { event ->
+                    audioEngine.noteOn(event.channel, event.pitch, event.velocity)
+                    pendingNoteOffs.add(PendingNoteOff(
+                        event.channel, event.pitch, currentTimeMs + event.durationMs
+                    ))
+                }
+            lastSequencerLoopTime = loopTime
+            if (pendingNoteOffs.isNotEmpty()) {
+                val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs }
+                if (dueOffs.isNotEmpty()) {
+                    dueOffs.forEach { audioEngine.noteOff(it.channel, it.pitch) }
+                    pendingNoteOffs.removeAll(dueOffs.toSet())
                 }
             }
+            delay(8L) // ~120 polls/sec — tight enough for musical timing, runs with screen off
         }
     }
 }
@@ -939,8 +1015,9 @@ private fun InstrumentPatternPanel(
     onStrumSelected: (StrumPreset) -> Unit,
     selectedPickingPreset: PickingPreset,
     onPickingSelected: (PickingPreset) -> Unit,
-    selectedProgram: Int?,
-    onProgramSelected: (Int) -> Unit,
+    selectedPatch: PatchOption?,
+    onPatchSelected: (PatchOption) -> Unit,
+    availablePatches: Map<String, List<PatchOption>>, // NEW made by Claude 08/08/2026
     audioEngine: JamLabAudioEngine
 ) {
     val def = INSTRUMENT_DEFS.find { it.key == instrumentKey } ?: return
@@ -1035,16 +1112,21 @@ private fun InstrumentPatternPanel(
                 color = Color.Gray,
                 modifier = Modifier.padding(bottom = 6.dp)
             )
-            val programs = INSTRUMENT_PROGRAMS[instrumentKey] ?: emptyList()
+            // MODIFIED made by Claude 08/08/2026 — dynamic SF2 list, falls back to hardcoded if empty
+            val programs = availablePatches[instrumentKey]
+                ?.takeIf { it.isNotEmpty() }
+                ?: (INSTRUMENT_PROGRAMS[instrumentKey] ?: emptyList())
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(programs.size) { index ->
-                    val (name, program) = programs[index]
-                    val isSelected = program == selectedProgram
+                    val patch = programs[index]
+                    val isSelected = patch.bank == selectedPatch?.bank &&
+                            patch.program == selectedPatch?.program
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // Program number badge
+                        // Bank:Program badge — NEW made by Claude 05/08/2026
+                        // Format: 000:027 so patch addresses are readable during auditioning
                         Box(
                             modifier = Modifier
                                 .background(
@@ -1057,7 +1139,7 @@ private fun InstrumentPatternPanel(
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = program.toString().padStart(3, '0'),
+                                text = "${patch.bank.toString().padStart(3, '0')}:${patch.program.toString().padStart(3, '0')}",
                                 fontSize = 8.sp,
                                 color = if (isSelected)
                                     MaterialTheme.colorScheme.primary
@@ -1070,24 +1152,24 @@ private fun InstrumentPatternPanel(
                         if (isSelected) {
                             Button(
                                 onClick = {
-                                    audioEngine.changeProgramOnChannel(def.channel, program)
-                                    onProgramSelected(program)
+                                    audioEngine.changePatchOnChannel(def.channel, patch.bank, patch.program)
+                                    onPatchSelected(patch)
                                 },
                                 modifier = Modifier.height(36.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
                             ) {
-                                Text(name, fontSize = 10.sp)
+                                Text(patch.name, fontSize = 10.sp)
                             }
                         } else {
                             OutlinedButton(
                                 onClick = {
-                                    audioEngine.changeProgramOnChannel(def.channel, program)
-                                    onProgramSelected(program)
+                                    audioEngine.changePatchOnChannel(def.channel, patch.bank, patch.program)
+                                    onPatchSelected(patch)
                                 },
                                 modifier = Modifier.height(36.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
                             ) {
-                                Text(name, fontSize = 10.sp)
+                                Text(patch.name, fontSize = 10.sp)
                             }
                         }
                     }

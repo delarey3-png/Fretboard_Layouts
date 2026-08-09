@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <fluidsynth.h>
 #include <android/log.h>
+#include <string> // NEW made by Claude 08/08/2026
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FluidSynthJNI", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "FluidSynthJNI", __VA_ARGS__)
@@ -44,6 +45,44 @@ Java_com_example_fretboardlayouts_audio_FluidSynthEngine_nativeLoadSoundFont(JNI
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_fretboardlayouts_audio_FluidSynthEngine_nativeProgramChange(JNIEnv*, jobject, jint channel, jint program) {
 if (synth) fluid_synth_program_change(synth, channel, program);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_fretboardlayouts_audio_FluidSynthEngine_nativeBankAndProgramChange(
+        JNIEnv*, jobject, jint channel, jint bank, jint program) {
+    // MODIFIED made by Claude 05/08/2026
+    // Channel 9 (percussion) must NEVER receive bank_select — FluidSynth routes
+    // channel 9 to SF2 bank 128 automatically. Bank select on ch9 bleeds into
+    // other channels due to GS mode interpretation.
+    if (synth) {
+        if (channel != 9) {
+            fluid_synth_bank_select(synth, channel, bank);
+        }
+        fluid_synth_program_change(synth, channel, program);
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_fretboardlayouts_audio_FluidSynthEngine_nativeGetPresets(
+        JNIEnv* env, jobject) {
+    // NEW made by Claude 08/08/2026
+    // Iterates every preset in the first loaded SF2 and returns them as a
+    // pipe-delimited string: "bank:program:name|bank:program:name|..."
+    // Kotlin side parses this into PatchOption list and filters by GM range per instrument.
+    if (!synth) return env->NewStringUTF("");
+    fluid_sfont_t* sfont = fluid_synth_get_sfont(synth, 0);
+    if (!sfont) return env->NewStringUTF("");
+    std::string result;
+    fluid_sfont_iteration_start(sfont);
+    fluid_preset_t* preset;
+    while ((preset = fluid_sfont_iteration_next(sfont)) != nullptr) {
+        int bank    = fluid_preset_get_banknum(preset);
+        int program = fluid_preset_get_num(preset);
+        const char* name = fluid_preset_get_name(preset);
+        if (!result.empty()) result += "|";
+        result += std::to_string(bank) + ":" + std::to_string(program) + ":" + (name ? name : "");
+    }
+    return env->NewStringUTF(result.c_str());
 }
 
 extern "C" JNIEXPORT void JNICALL

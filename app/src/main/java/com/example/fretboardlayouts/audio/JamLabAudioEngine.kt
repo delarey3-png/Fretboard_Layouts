@@ -39,8 +39,15 @@ class JamLabAudioEngine(context: Context) {
      * This allows real-time instrument swapping while audio plays
      */
     fun changeProgramOnChannel(channel: Int, program: Int) {
-        Log.d(TAG, "Channel $channel → Program $program")
-        FluidSynthEngine.nativeProgramChange(channel, program)
+        Log.d(TAG, "Channel $channel → Bank 0 Program $program")
+        FluidSynthEngine.nativeBankAndProgramChange(channel, 0, program) // MODIFIED made by Claude 05/08/2026
+    }
+
+    // NEW made by Claude 05/08/2026
+    // Bank-aware patch selection — for soundfonts with multiple banks
+    fun changePatchOnChannel(channel: Int, bank: Int, program: Int) {
+        Log.d(TAG, "Channel $channel → Bank $bank Program $program")
+        FluidSynthEngine.nativeBankAndProgramChange(channel, bank, program)
     }
 
     /**
@@ -60,5 +67,12 @@ class JamLabAudioEngine(context: Context) {
         Log.d(TAG, "Releasing JamLabAudioEngine")
         stopAudio()
         midiPlayer.release()
+    }
+
+    // NEW made by Claude 08/08/2026
+    // Returns raw preset string from the loaded SF2 — parsing happens in JamLabActivity
+    // Format: "bank:program:name|bank:program:name|..."
+    fun getRawPresets(): String {
+        return FluidSynthEngine.nativeGetPresets()
     }
 }
