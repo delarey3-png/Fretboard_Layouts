@@ -13,18 +13,22 @@ data class MusicKey(val rootPitchClass: Int, val isMinor: Boolean) {
             val parts = s.trim().split(" ")
             val rootName = parts[0]
             val isMinor = parts.getOrNull(1)?.equals("Minor", ignoreCase = true) == true
-            
-            // made by Gemini 27/06: Updated mapping to handle both sharps and flats for robust parsing
-            val root = NOTE_NAMES.indexOf(rootName.uppercase()
-                .replace("C#","Db").replace("D#","Eb")
-                .replace("F#","Gb").replace("G#","Ab")
-                .replace("A#","Bb"))
+
+            // Do sharp→flat substitution first (before any case change),
+            // then look up case-insensitively so "db", "DB", "Db" all resolve.
+            val normalized = rootName
+                .replace("C#", "Db", ignoreCase = true)
+                .replace("D#", "Eb", ignoreCase = true)
+                .replace("F#", "Gb", ignoreCase = true)
+                .replace("G#", "Ab", ignoreCase = true)
+                .replace("A#", "Bb", ignoreCase = true)
+
+            val root = NOTE_NAMES.indexOfFirst { it.equals(normalized, ignoreCase = true) }
             require(root >= 0) { "Unknown root note: $rootName" }
             return MusicKey(root, isMinor)
         }
     }
 }
-
 enum class ScaleType { FULL, PENTATONIC, BLUES }
 
 object ScaleIntervals {

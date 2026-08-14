@@ -1,5 +1,4 @@
 package com.example.fretboardlayouts
-
 import android.R
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,7 +40,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fretboardlayouts.audio.GenreInstruments // NEW made by Claude 09/08/2026
 import com.example.fretboardlayouts.audio.JamLabAudioEngine
 import com.example.fretboardlayouts.theory.ChordOverlayMode
 import com.example.fretboardlayouts.theory.Genre
@@ -73,12 +73,14 @@ import com.example.fretboardlayouts.theory.buildVisualStrumState
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
 import com.example.fretboardlayouts.theory.InstrumentRole // made by Claude 11/07
-import kotlinx.coroutines.delay // NEW made by Claude 08/08/2026
+import kotlinx.coroutines.delay // made by Claude 08/08/2026
 
 // ================================================================
 // TOP-LEVEL DEFINITIONS
 // made by Claude 10/07: Instrument role matrix definitions
+// MODIFIED made by Claude 09/08/2026: expanded to full GM group channel map
 // ================================================================
+
 data class InstrumentDef(
     val key: String,
     val displayName: String,
@@ -89,35 +91,79 @@ data class InstrumentDef(
     val supportsHybrid: Boolean = true
 )
 
+// Channel map (matches StyleEngine channel convention — keep in sync):
+// Ch 0  Guitar      programs 24–31
+// Ch 1  Bass        programs 32–39
+// Ch 2  Piano       programs 0–7
+// Ch 3  Organ       programs 16–23   ← NEW (09/08/2026)
+// Ch 4  Strings     programs 40–47   ← shifted from 3 (09/08/2026)
+// Ch 5  Ensemble    programs 48–55   ← NEW (09/08/2026)
+// Ch 6  Brass       programs 56–63   ← split from old Winds (09/08/2026)
+// Ch 7  Reed        programs 64–71   ← split from old Winds (09/08/2026)
+// Ch 8  Pipe        programs 72–79   ← split from old Winds (09/08/2026)
+// Ch 9  Drums       bank 128, fixed
+// Ch 10 Synth       programs 80–95   ← NEW, SF2-aware only (09/08/2026)
+// Ch 11 Ethnic      programs 104–111 ← NEW, SF2-aware only (09/08/2026)
+// SKIPPED: Chromatic Perc 8-15, Synth Effects 96-103, Percussive 112-119, Sound Effects 120-127
 val INSTRUMENT_DEFS = listOf(
-    InstrumentDef("guitar",  "Guitar",       "🎸", 0, InstrumentRole.STRUM_CHORD),
-    InstrumentDef("bass",    "Bass",          "🎸", 1, InstrumentRole.STRUM_CHORD),
-    InstrumentDef("drums",   "Drums",         "🥁", 9, InstrumentRole.STRUM_CHORD,
+    InstrumentDef("guitar",   "Guitar",   "🎸", 0,  InstrumentRole.STRUM_CHORD),
+    InstrumentDef("bass",     "Bass",     "🎸", 1,  InstrumentRole.STRUM_CHORD),
+    InstrumentDef("drums",    "Drums",    "🥁", 9,  InstrumentRole.STRUM_CHORD,
         supportsPickArpeggio = false, supportsHybrid = false),
-    InstrumentDef("piano",   "Piano / Synth", "🎹", 2),
-    InstrumentDef("strings", "Strings",       "🎻", 3),
-    InstrumentDef("winds",   "Winds / Brass", "🎺", 4, supportsHybrid = false)
+    InstrumentDef("piano",    "Piano",    "🎹", 2),
+    // NEW made by Claude 09/08/2026 — split from old "Piano / Synth" and "Winds / Brass"
+    InstrumentDef("organ",    "Organ",    "🎹", 3,  supportsHybrid = false),
+    InstrumentDef("strings",  "Strings",  "🎻", 4),  // MODIFIED channel 3→4
+    InstrumentDef("ensemble", "Ensemble", "🎻", 5,
+        supportsPickArpeggio = false, supportsHybrid = false),
+    InstrumentDef("brass",    "Brass",    "🎺", 6,  supportsHybrid = false),
+    InstrumentDef("reed",     "Reed",     "🎷", 7,  supportsHybrid = false),
+    InstrumentDef("pipe",     "Pipe",     "🪈", 8,  supportsHybrid = false),
+    InstrumentDef("synth",    "Synth",    "🎹", 10, supportsHybrid = false),
+    InstrumentDef("ethnic",   "Ethnic",   "🪗", 11, supportsHybrid = false)
 )
+
+// NEW made by Claude 09/08/2026
+// Genre → which instrument rows are visible by default.
+// SF2-aware rows (synth, ensemble) are controlled separately by SF2_ONLY_INSTRUMENTS.
+val genreInstrumentVisibility: Map<Genre, Set<String>> = mapOf(
+    Genre.ROCK    to setOf("guitar", "bass", "piano", "strings", "drums"),
+    Genre.BLUES   to setOf("guitar", "bass", "piano", "organ", "brass", "reed", "drums"),
+    Genre.JAZZ    to setOf("guitar", "bass", "piano", "organ", "strings", "brass", "reed", "drums"),
+    Genre.COUNTRY to setOf("guitar", "bass", "piano", "strings", "pipe", "ethnic", "drums"),
+    Genre.FUNK    to setOf("guitar", "bass", "piano", "organ", "brass", "reed", "drums"),
+    Genre.DISCO   to setOf("guitar", "bass", "piano", "strings", "brass", "drums"),
+    Genre.SKA     to setOf("guitar", "bass", "piano", "brass", "reed", "drums"),
+    Genre.REGGAE  to setOf("guitar", "bass", "piano", "organ", "brass", "reed", "drums")
+)
+
+// NEW made by Claude 09/08/2026
+// These rows appear only when the loaded SF2 actually has patches for them — genre does not force them visible.
+// Synth and Ensemble are non-essential; they self-hide on any font that lacks them.
+val SF2_ONLY_INSTRUMENTS: Set<String> = setOf("synth", "ensemble")
 
 // NEW made by Claude 05/08/2026
 // PatchOption replaces bare Int program numbers — carries bank + program together
 data class PatchOption(val name: String, val bank: Int, val program: Int)
 
+// MODIFIED made by Claude 09/08/2026
+// Hardcoded fallback used when SF2 returns no data.
+// Groups now match the GM family split — each key maps to exactly one channel.
 val INSTRUMENT_PROGRAMS = mapOf(
-    "guitar"  to listOf(
+    "guitar"   to listOf(
         PatchOption("SGM Nylon",        0, 24),
         PatchOption("Steel Sammy",      0, 25),
         PatchOption("Fluid Jazz",       0, 26),
         PatchOption("MK Clean",         0, 27),
         PatchOption("Crisis Muted",     0, 28),
         PatchOption("Arachno OD",       0, 29),
-        PatchOption("MK Jazz",          1, 26), // NEW made by Claude 05/08/2026
-        PatchOption("GS Chorused Cln",  1, 27), // NEW made by Claude 05/08/2026
-        PatchOption("Muted Metal",      1, 28), // NEW made by Claude 05/08/2026
-        PatchOption("Strix Shadowed",   2, 27), // NEW made by Claude 05/08/2026
-        PatchOption("Strix Brt Chorus", 3, 27)  // NEW made by Claude 05/08/2026
+        PatchOption("MK Jazz",          1, 26),
+        PatchOption("GS Chorused Cln",  1, 27),
+        PatchOption("Muted Metal",      1, 28),
+        PatchOption("Strix Shadowed",   2, 27),
+        PatchOption("Strix Brt Chorus", 3, 27)
     ),
-    "bass"    to listOf(
+    "bass"     to listOf(
         PatchOption("Crisis Acoustic",  0, 32),
         PatchOption("Crisis Finger",    0, 33),
         PatchOption("Crisis Pick",      0, 34),
@@ -126,40 +172,132 @@ val INSTRUMENT_PROGRAMS = mapOf(
         PatchOption("Fluid Pop",        0, 37),
         PatchOption("GS Synth 1",       0, 38),
         PatchOption("GS Synth 2",       0, 39),
-        PatchOption("Arachno Finger",   1, 33)  // NEW made by Claude 05/08/2026
+        PatchOption("Arachno Finger",   1, 33)
     ),
-    "drums"   to listOf(
-        PatchOption("Standard",   0,   0), // MODIFIED made by Claude 05/08/2026 — bank 128 auto-selected by FluidSynth on ch9
-        PatchOption("Room",       0,   8),
-        PatchOption("Power",      0,  16),
-        PatchOption("TR-808",     0,  25),
-        PatchOption("Jazz",       0,  32),
-        PatchOption("Brush",      0,  40),
-        PatchOption("Orchestra",  0,  48)
+    "drums"    to listOf(
+        PatchOption("Standard",   0,  0),
+        PatchOption("Room",       0,  8),
+        PatchOption("Power",      0, 16),
+        PatchOption("TR-808",     0, 25),
+        PatchOption("Jazz",       0, 32),
+        PatchOption("Brush",      0, 40),
+        PatchOption("Orchestra",  0, 48)
     ),
-    "piano"   to listOf(
-        PatchOption("Grand Piano", 0,  0), PatchOption("Bright Piano", 0,  1),
-        PatchOption("Elec Piano",  0,  4), PatchOption("Harpsichord",  0,  6),
-        PatchOption("Celesta",     0,  8), PatchOption("Synth Pad",    0, 88),
-        PatchOption("Synth Choir", 0, 91), PatchOption("Bowed Glass",  0, 92)
+    // Programs 0–7: GM Piano family only (organs now in own group)
+    "piano"    to listOf(
+        PatchOption("Grand Piano",   0, 0),
+        PatchOption("Bright Piano",  0, 1),
+        PatchOption("Electric Grand",0, 2),
+        PatchOption("Honky-Tonk",    0, 3),
+        PatchOption("Elec Piano 1",  0, 4),
+        PatchOption("Elec Piano 2",  0, 5),
+        PatchOption("Harpsichord",   0, 6),
+        PatchOption("Clavinet",      0, 7)
     ),
-    "strings" to listOf(
-        PatchOption("Violin",    0, 40), PatchOption("Viola",     0, 41),
-        PatchOption("Cello",     0, 42), PatchOption("Contrabass",0, 43),
-        PatchOption("Tremolo",   0, 44), PatchOption("Pizzicato", 0, 45),
-        PatchOption("Harp",      0, 46), PatchOption("Timpani",   0, 47)
+    // NEW made by Claude 09/08/2026 — Programs 16–23: GM Organ family
+    "organ"    to listOf(
+        PatchOption("Drawbar Organ",  0, 16),
+        PatchOption("Percussive Org", 0, 17),
+        PatchOption("Rock Organ",     0, 18),
+        PatchOption("Church Organ",   0, 19),
+        PatchOption("Reed Organ",     0, 20),
+        PatchOption("Accordion",      0, 21),
+        PatchOption("Harmonica",      0, 22),
+        PatchOption("Tango Accord",   0, 23)
     ),
-    "winds"   to listOf(
-        PatchOption("Flute",      0, 73), PatchOption("Recorder",   0, 74),
-        PatchOption("Trumpet",    0, 56), PatchOption("Trombone",   0, 57),
-        PatchOption("Tuba",       0, 58), PatchOption("French Horn",0, 60),
-        PatchOption("Alto Sax",   0, 65), PatchOption("Soprano Sax",0, 64)
+    // Programs 40–47: GM Strings family (ensemble 48-55 now in own group)
+    "strings"  to listOf(
+        PatchOption("Violin",     0, 40),
+        PatchOption("Viola",      0, 41),
+        PatchOption("Cello",      0, 42),
+        PatchOption("Contrabass", 0, 43),
+        PatchOption("Tremolo",    0, 44),
+        PatchOption("Pizzicato",  0, 45),
+        PatchOption("Harp",       0, 46),
+        PatchOption("Timpani",    0, 47)
+    ),
+    // NEW made by Claude 09/08/2026 — Programs 48–55: GM Ensemble family
+    "ensemble" to listOf(
+        PatchOption("String Ens 1",   0, 48),
+        PatchOption("String Ens 2",   0, 49),
+        PatchOption("Synth Str 1",    0, 50),
+        PatchOption("Synth Str 2",    0, 51),
+        PatchOption("Choir Aahs",     0, 52),
+        PatchOption("Voice Oohs",     0, 53),
+        PatchOption("Synth Voice",    0, 54),
+        PatchOption("Orchestra Hit",  0, 55)
+    ),
+    // NEW made by Claude 09/08/2026 — Programs 56–63: GM Brass family
+    "brass"    to listOf(
+        PatchOption("Trumpet",      0, 56),
+        PatchOption("Trombone",     0, 57),
+        PatchOption("Tuba",         0, 58),
+        PatchOption("Muted Trumpet",0, 59),
+        PatchOption("French Horn",  0, 60),
+        PatchOption("Brass Section",0, 61),
+        PatchOption("Synth Brass 1",0, 62),
+        PatchOption("Synth Brass 2",0, 63)
+    ),
+    // NEW made by Claude 09/08/2026 — Programs 64–71: GM Reed family
+    "reed"     to listOf(
+        PatchOption("Soprano Sax",  0, 64),
+        PatchOption("Alto Sax",     0, 65),
+        PatchOption("Tenor Sax",    0, 66),
+        PatchOption("Baritone Sax", 0, 67),
+        PatchOption("Oboe",         0, 68),
+        PatchOption("English Horn", 0, 69),
+        PatchOption("Bassoon",      0, 70),
+        PatchOption("Clarinet",     0, 71)
+    ),
+    // NEW made by Claude 09/08/2026 — Programs 72–79: GM Pipe family
+    "pipe"     to listOf(
+        PatchOption("Piccolo",      0, 72),
+        PatchOption("Flute",        0, 73),
+        PatchOption("Recorder",     0, 74),
+        PatchOption("Pan Flute",    0, 75),
+        PatchOption("Blown Bottle", 0, 76),
+        PatchOption("Shakuhachi",   0, 77),
+        PatchOption("Whistle",      0, 78),
+        PatchOption("Ocarina",      0, 79)
+    ),
+    // NEW made by Claude 09/08/2026 — Programs 80–95: GM Synth Lead + Synth Pad families
+    "synth"    to listOf(
+        PatchOption("Sq Lead",      0, 80),
+        PatchOption("Saw Lead",     0, 81),
+        PatchOption("Calliope",     0, 82),
+        PatchOption("Chiff Lead",   0, 83),
+        PatchOption("Charang",      0, 84),
+        PatchOption("Voice Lead",   0, 85),
+        PatchOption("Fifths Lead",  0, 86),
+        PatchOption("Bass+Lead",    0, 87),
+        PatchOption("New Age Pad",  0, 88),
+        PatchOption("Warm Pad",     0, 89),
+        PatchOption("Polysynth",    0, 90),
+        PatchOption("Choir Pad",    0, 91),
+        PatchOption("Bowed Pad",    0, 92),
+        PatchOption("Metallic Pad", 0, 93),
+        PatchOption("Halo Pad",     0, 94),
+        PatchOption("Sweep Pad",    0, 95)
+    ),
+    // NEW made by Claude 09/08/2026 — Programs 104–111: GM Ethnic family
+    "ethnic"   to listOf(
+        PatchOption("Sitar",    0, 104),
+        PatchOption("Banjo",    0, 105),
+        PatchOption("Shamisen", 0, 106),
+        PatchOption("Koto",     0, 107),
+        PatchOption("Kalimba",  0, 108),
+        PatchOption("Bagpipe",  0, 109),
+        PatchOption("Fiddle",   0, 110),
+        PatchOption("Shanai",   0, 111)
     )
 )
 
-// NEW made by Claude 08/08/2026
-// Parses the raw pipe-delimited preset string from nativeGetPresets() into
-// a map of instrument key → patch list, filtered by GM program ranges.
+// MODIFIED made by Claude 09/08/2026
+// Filter ranges now match the per-GM-family channel split.
+// Piano = 0-7 only (organs separated). Strings = 40-47 only (ensemble separated).
+// Winds split into brass (56-63), reed (64-71), pipe (72-79).
+// Programs 8-15 (Chromatic Perc), 96-103 (Synth Effects),
+// 112-119 (Percussive), 120-127 (Sound Effects) are intentionally excluded.
 fun parsePresetsFromSF2(raw: String): Map<String, List<PatchOption>> {
     if (raw.isEmpty()) return emptyMap()
     val all = raw.split("|").mapNotNull { entry ->
@@ -172,13 +310,23 @@ fun parsePresetsFromSF2(raw: String): Map<String, List<PatchOption>> {
             PatchOption(name, bank, program)
         }
     }
+    // MODIFIED made by Claude 09/08/2026 — also exclude bank 120 (used for
+    // percussion/SFX in some soundfonts e.g. GeneralUser GS) so drum patches
+    // don't bleed into melodic instrument slots like piano (0-7 range)
+    val melodic = all.filter { it.bank !in listOf(120, 127, 128) }
     return mapOf(
-        "guitar"  to all.filter { it.bank !in listOf(127, 128) && it.program in 24..31 },
-        "bass"    to all.filter { it.bank !in listOf(127, 128) && it.program in 32..39 },
-        "strings" to all.filter { it.bank !in listOf(127, 128) && it.program in 40..55 }, // MODIFIED made by Claude 08/08/2026 — added ensemble 48-55
-        "winds"   to all.filter { it.bank !in listOf(127, 128) && it.program in 56..79 },
-        "piano"   to all.filter { it.bank !in listOf(127, 128) && it.program in 0..23 },   // MODIFIED made by Claude 08/08/2026 — added organs 16-23
-        "drums"   to all.filter { it.bank == 128 }
+        "guitar"   to melodic.filter { it.program in 24..31  },
+        "bass"     to melodic.filter { it.program in 32..39  },
+        "piano"    to melodic.filter { it.program in 0..7    },
+        "organ"    to melodic.filter { it.program in 16..23  },
+        "strings"  to melodic.filter { it.program in 40..47  },
+        "ensemble" to melodic.filter { it.program in 48..55  },
+        "brass"    to melodic.filter { it.program in 56..63  },
+        "reed"     to melodic.filter { it.program in 64..71  },
+        "pipe"     to melodic.filter { it.program in 72..79  },
+        "synth"    to melodic.filter { it.program in 80..95  },
+        "ethnic"   to melodic.filter { it.program in 104..111},
+        "drums"    to all.filter     { it.bank == 128        }
     )
 }
 
@@ -186,7 +334,6 @@ fun parsePresetsFromSF2(raw: String): Map<String, List<PatchOption>> {
 // VISUAL STRUMMING DISPLAY
 // made by Gemini 27/06
 // ================================================================
-
 @Composable
 fun StrummingVisualDisplay(
     preset: StrumPreset,
@@ -247,25 +394,23 @@ fun StrummingVisualDisplay(
 // ================================================================
 // ACTIVITY
 // ================================================================
-
 /**
  * Jam Lab Activity — Sound Sandbox for testing genres and discovering presets.
  * Completely standalone, independent from MainViewModel.
  */
 class JamLabActivity : ComponentActivity() {
-    // NEW made by Claude 08/08/2026
+    // made by Claude 08/08/2026
     // Keeps CPU running when screen turns off so audio continues during jamming
     private lateinit var wakeLock: android.os.PowerManager.WakeLock
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Acquire wake lock — allows screen off but keeps audio running
         val powerManager = getSystemService(POWER_SERVICE) as android.os.PowerManager
         wakeLock = powerManager.newWakeLock(
             android.os.PowerManager.PARTIAL_WAKE_LOCK,
             "LetsJam::JamLabAudioWakeLock"
         )
-        wakeLock.acquire(4 * 60 * 60 * 1000L) // 4 hour max — covers any reasonable jam session
+        wakeLock.acquire(4 * 60 * 60 * 1000L) // 4 hour max
         setContent {
             FretboardLayoutsTheme {
                 JamLabScreen()
@@ -275,7 +420,6 @@ class JamLabActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Release wake lock when activity closes — don't drain battery unnecessarily
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
             wakeLock.release()
         }
@@ -285,38 +429,36 @@ class JamLabActivity : ComponentActivity() {
 // ================================================================
 // JAM LAB SCREEN
 // ================================================================
-
 @Composable
 fun JamLabScreen() {
     val context = LocalContext.current
     val audioEngine = remember { JamLabAudioEngine(context) }
 
-    // NEW made by Claude 08/08/2026
     // Read all presets from the loaded SF2 once at startup — no hardcoding needed
     val availablePatches = remember(audioEngine) {
         parsePresetsFromSF2(audioEngine.getRawPresets())
     }
 
     // ══ LOCAL STATE (completely independent from MainViewModel) ══
-    var currentGenre by remember { mutableStateOf(Genre.ROCK) }
-    var currentKey by remember { mutableStateOf("C Major") }
-    var currentProgression by remember { mutableStateOf("I - V - vi - IV (Pop/Country/Rock)") }
-    var currentTempo by remember { mutableStateOf(100) }
-    var currentTimeSignature by remember { mutableStateOf(TimeSignature.FOUR_FOUR) }
-    var currentScale by remember { mutableStateOf(ScaleType.FULL) }
-    var currentStrumPreset by remember { mutableStateOf(allGuitarPresets[0]) }
-    var currentPickingPreset by remember { mutableStateOf(allPickingPresets[0]) }
-    var customStrumMode by remember { mutableStateOf(false) }
-    var currentNoteLength by remember { mutableStateOf("1/4") }
-    var currentHumanisation by remember { mutableStateOf(HumanisationLevel.OFF) } // made by Claude 11/07
-    // made by Claude 11/07: Tracks current bar for progression display
-    var currentBarIndex by remember { mutableStateOf(0) }
-    // made by Gemini 27/06: Context-aware progression options
+    var currentGenre          by remember { mutableStateOf(Genre.ROCK) }
+    var currentKey            by remember { mutableStateOf("C Major") }
+    var currentProgression    by remember { mutableStateOf("I - V - vi - IV (Pop/Country/Rock)") }
+    var currentTempo          by remember { mutableStateOf(100) }
+    var currentTimeSignature  by remember { mutableStateOf(TimeSignature.FOUR_FOUR) }
+    var currentScale          by remember { mutableStateOf(ScaleType.FULL) }
+    var currentStrumPreset    by remember { mutableStateOf(allGuitarPresets[0]) }
+    var currentPickingPreset  by remember { mutableStateOf(allPickingPresets[0]) }
+    var customStrumMode       by remember { mutableStateOf(false) }
+    var currentNoteLength     by remember { mutableStateOf("1/4") }
+    var currentHumanisation   by remember { mutableStateOf(HumanisationLevel.OFF) } // made by Claude 11/07
+    var currentBarIndex       by remember { mutableStateOf(0) }                      // made by Claude 11/07
+
     val currentKeyObj = remember(currentKey) { MusicKey.fromString(currentKey) }
     val progressionOptions = remember(currentKeyObj) {
         buildProgressionOptions(currentKeyObj)
     }
 
+    // Auto-select first valid progression when key modality changes
     LaunchedEffect(currentKeyObj) {
         val currentValid =
             progressionOptions.find { it.name == currentProgression }?.enabled ?: false
@@ -325,20 +467,79 @@ fun JamLabScreen() {
         }
     }
 
+    var selectedPatchByChannel by remember { mutableStateOf(mapOf<Int, PatchOption>()) }
+
+    // NEW made by Claude 09/08/2026
+    // On genre change: reset panel selection if instrument is now hidden, auto-load
+    // genre patches on the audio engine, and sync selectedPatchByChannel so the UI
+    // reflects the new patches without the user having to tap anything manually.
+    var selectedInstrumentKey by remember { mutableStateOf("guitar") }
+    LaunchedEffect(currentGenre) {
+        // 1. Reset panel if selected instrument is no longer visible
+        val genreVisible = genreInstrumentVisibility[currentGenre]
+            ?: INSTRUMENT_DEFS.map { it.key }.toSet()
+        val isVisible = when (selectedInstrumentKey) {
+            in SF2_ONLY_INSTRUMENTS -> availablePatches[selectedInstrumentKey]?.isNotEmpty() == true
+            else                    -> selectedInstrumentKey in genreVisible
+        }
+        if (!isVisible) selectedInstrumentKey = "guitar"
+
+        // 2. Fire patch changes on the audio engine for all genre-appropriate channels
+        audioEngine.loadGenrePatches(currentGenre)
+
+        // 3. Sync selectedPatchByChannel so the UI shows the correct patch selection.
+        //    Looks up each channel's new program in availablePatches (SF2) or the
+        //    hardcoded fallback, bank 0 only (all GenreInstrumentation programs are bank 0).
+        val g = GenreInstruments.forGenre(currentGenre)
+        val newPatches = mutableMapOf<Int, PatchOption>()
+        listOf(
+            Triple(0,  "guitar",   g.guitarProgram),
+            Triple(1,  "bass",     g.bassProgram),
+            Triple(3,  "organ",    g.organProgram),
+            Triple(4,  "strings",  g.stringsProgram),
+            Triple(5,  "ensemble", g.ensembleProgram),
+            Triple(6,  "brass",    g.brassProgram),
+            Triple(7,  "reed",     g.reedProgram),
+            Triple(8,  "pipe",     g.pipeProgram),
+            Triple(9,  "drums",    g.drumKitProgram),
+            Triple(10, "synth",    g.synthProgram),
+            Triple(11, "ethnic",   g.ethnicProgram)
+        ).forEach { (channel, key, program) ->
+            if (program == -1) return@forEach
+            val patches = availablePatches[key]?.takeIf { it.isNotEmpty() }
+                ?: INSTRUMENT_PROGRAMS[key] ?: return@forEach
+            patches.firstOrNull { it.bank == 0 && it.program == program }
+                ?.let { newPatches[channel] = it }
+        }
+        selectedPatchByChannel = newPatches
+    }
+
     val strumPatternOptions = remember(currentGenre, customStrumMode, currentTimeSignature) {
         buildPresetOptions(allGuitarPresets, currentGenre, currentTimeSignature, customStrumMode)
     }
 
-    var selectedPatchByChannel by remember { mutableStateOf(mapOf<Int, PatchOption>()) } // MODIFIED made by Claude 05/08/2026
-    var isPlaying by remember { mutableStateOf(false) }
-    var showGeneratingMessage by remember { mutableStateOf(false) }
-    var currentTimeline by remember { mutableStateOf<JamTimeline?>(null) }
+    var isPlaying              by remember { mutableStateOf(false) }
+    var showGeneratingMessage  by remember { mutableStateOf(false) }
+    var currentTimeline        by remember { mutableStateOf<JamTimeline?>(null) }
 
-    // made by Claude 10/07: Instrument role and panel state
+    // made by Claude 10/07: Instrument role state
     var instrumentRoles by remember {
         mutableStateOf(INSTRUMENT_DEFS.associate { it.key to it.defaultRole })
     }
-    var selectedInstrumentKey by remember { mutableStateOf("guitar") }
+
+    // NEW made by Claude 09/08/2026 — per-genre channel volume mixer
+    // Stored per-genre so switching Blues→Rock→Blues restores the Blues mix.
+    // Default 1.0f = use StyleEngine's built-in channelVolumeScale as-is.
+    var channelVolumeByGenre by remember {
+        mutableStateOf(
+            Genre.values().associate { g ->
+                g to INSTRUMENT_DEFS.associate { it.channel to 1.0f }
+            }
+        )
+    }
+    var showVolumeMixer by remember { mutableStateOf(false) }
+    val currentChannelVolume = channelVolumeByGenre[currentGenre]
+        ?: INSTRUMENT_DEFS.associate { it.channel to 1.0f }
 
     Column(
         modifier = Modifier
@@ -402,7 +603,8 @@ fun JamLabScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
-// made by Claude 11/07: Note Length selector
+
+        // made by Claude 11/07: Note Length selector
         Text("Note Length", style = MaterialTheme.typography.labelSmall)
         SimpleDropdown(
             selected = currentNoteLength,
@@ -411,6 +613,7 @@ fun JamLabScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
+
         Text("Strum Pattern", style = MaterialTheme.typography.labelSmall)
         PresetDropdownJamLab(
             label = "Strum Pattern",
@@ -433,7 +636,6 @@ fun JamLabScreen() {
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Visual strumming arrow display
         // made by Claude 11/07: Hide strum display when guitar is in picking mode
         val guitarRole = instrumentRoles["guitar"] ?: InstrumentRole.STRUM_CHORD
         if (guitarRole != InstrumentRole.PICK_ARPEGGIO) {
@@ -478,6 +680,7 @@ fun JamLabScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
+
         Text(
             "Tempo: $currentTempo BPM",
             style = MaterialTheme.typography.labelMedium,
@@ -490,6 +693,7 @@ fun JamLabScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
+
         // made by Claude 11/07: Live progression display
         currentTimeline?.let { timeline ->
             JamLabProgressionDisplay(
@@ -500,6 +704,7 @@ fun JamLabScreen() {
                     .padding(vertical = 8.dp)
             )
         }
+
         // ══ PLAYBACK CONTROLS ══
         Row(
             modifier = Modifier
@@ -527,9 +732,8 @@ fun JamLabScreen() {
                     showGeneratingMessage = false
                 },
                 modifier = Modifier.weight(1f)
-            ) {
-                Text("Generate & Play")
-            }
+            ) { Text("Generate & Play") }
+
             Button(
                 onClick = {
                     isPlaying = false
@@ -537,9 +741,8 @@ fun JamLabScreen() {
                 },
                 modifier = Modifier.weight(1f),
                 enabled = currentTimeline != null
-            ) {
-                Text("Stop")
-            }
+            ) { Text("Stop") }
+
             OutlinedButton(
                 onClick = {
                     isPlaying = false
@@ -548,9 +751,7 @@ fun JamLabScreen() {
                     showGeneratingMessage = false
                 },
                 modifier = Modifier.weight(1f)
-            ) {
-                Text("Reset")
-            }
+            ) { Text("Reset") }
         }
 
         if (showGeneratingMessage) {
@@ -562,19 +763,53 @@ fun JamLabScreen() {
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ══ INSTRUMENT MATRIX (made by Claude 10/07) ══
-        Text("Instruments", style = MaterialTheme.typography.labelSmall)
+        // ══ INSTRUMENT MATRIX ══
+        // made by Claude 10/07, expanded 09/08/2026 for full GM group map
+        // NEW made by Claude 09/08/2026 — Mix button opens per-genre volume popup
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Instruments",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = { showVolumeMixer = true },
+                modifier = Modifier.height(32.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text("🎚 Mix", fontSize = 11.sp)
+            }
+        }
+        if (showVolumeMixer) {
+            VolumeMixerPopup(
+                genre = currentGenre,
+                availablePatches = availablePatches,
+                channelVolume = currentChannelVolume,
+                onVolumeChanged = { channel, value ->
+                    channelVolumeByGenre = channelVolumeByGenre + (currentGenre to
+                            currentChannelVolume + (channel to value))
+                },
+                onReset = {
+                    channelVolumeByGenre = channelVolumeByGenre + (currentGenre to
+                            INSTRUMENT_DEFS.associate { it.channel to 1.0f })
+                },
+                onDismiss = { showVolumeMixer = false }
+            )
+        }
         Spacer(modifier = Modifier.height(6.dp))
-
         InstrumentRoleMatrix(
             instrumentRoles = instrumentRoles,
             selectedKey = selectedInstrumentKey,
+            genre = currentGenre,                     // NEW made by Claude 09/08/2026
+            availablePatches = availablePatches,      // NEW made by Claude 09/08/2026
             onRoleChanged = { key, role ->
                 instrumentRoles = instrumentRoles + (key to role)
             },
             onInstrumentSelected = { selectedInstrumentKey = it }
         )
-
         Spacer(modifier = Modifier.height(8.dp))
 
         val selectedDef = INSTRUMENT_DEFS.find { it.key == selectedInstrumentKey }
@@ -592,11 +827,10 @@ fun JamLabScreen() {
                     selectedPatchByChannel =
                         selectedPatchByChannel + (selectedDef.channel to patch)
                 },
-                availablePatches = availablePatches, // NEW made by Claude 08/08/2026
+                availablePatches = availablePatches,
                 audioEngine = audioEngine
             )
         }
-
         Spacer(modifier = Modifier.height(20.dp))
 
         // ══ PLAYBACK LOOP ══
@@ -607,8 +841,10 @@ fun JamLabScreen() {
                 genre = currentGenre,
                 preset = currentStrumPreset,
                 pickingPreset = currentPickingPreset,
-                instrumentRoles = instrumentRoles,  // made by Claude 10/07
-                onBarChanged = { currentBarIndex = it }  // made by Claude 11/07
+                instrumentRoles = instrumentRoles,
+                humanisationLevel = currentHumanisation,
+                channelVolume = currentChannelVolume,   // NEW made by Claude 09/08/2026
+                onBarChanged = { currentBarIndex = it }
             )
         }
     } // end Column
@@ -617,7 +853,6 @@ fun JamLabScreen() {
 // ================================================================
 // PLAYBACK HANDLER
 // ================================================================
-
 @Composable
 private fun PlaybackLoopJamLabHandler(
     timeline: JamTimeline,
@@ -626,8 +861,9 @@ private fun PlaybackLoopJamLabHandler(
     preset: StrumPreset,
     pickingPreset: PickingPreset?,
     instrumentRoles: Map<String, InstrumentRole>,  // made by Claude 10/07
-    humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,  // made by Claude 11/07
-    onBarChanged: (Int) -> Unit  // made by Claude 11/07
+    humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
+    channelVolume: Map<Int, Float> = emptyMap(),   // NEW made by Claude 09/08/2026
+    onBarChanged: (Int) -> Unit                    // made by Claude 11/07
 ) {
     // made by Claude 10/07: Only fire MIDI events for active channels
     val activeChannels = remember(instrumentRoles) {
@@ -640,24 +876,35 @@ private fun PlaybackLoopJamLabHandler(
     }
 
     var lastSequencerLoopTime by remember { mutableLongStateOf(-1L) }
-    val pendingNoteOffs = remember { mutableListOf<PendingNoteOff>() } // made by Claude 11/07: mutableListOf avoids recomposition
-    val lastBarIndexRef = remember { intArrayOf(-1) } // made by Claude 11/07: plain array avoids recomposition
+    val pendingNoteOffs = remember { mutableListOf<PendingNoteOff>() }
+    val lastBarIndexRef  = remember { intArrayOf(-1) }
 
-    val backingTrackEvents = remember(timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles) { // made by Claude 11/07
+    // NEW made by Claude 09/08/2026 — channelVolume is a remember key so moving a
+    // slider recomputes velocities immediately without restarting the playback loop.
+    // StyleEngine's internal channelVolumeScale is applied first; user's slider
+    // multiplier is applied on top as a second pass here.
+    val backingTrackEvents = remember(
+        timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles, channelVolume
+    ) {
         com.example.fretboardlayouts.audio.StyleEngine.generateAccompaniment(
             timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles
-        )
+        ).map { event ->
+            event.copy(
+                velocity = (event.velocity * (channelVolume[event.channel] ?: 1.0f))
+                    .toInt().coerceIn(1, 127)
+            )
+        }
     }
 
     LaunchedEffect(Unit) {
         // MODIFIED made by Claude 08/08/2026
-        // Replaced withFrameMillis (display-tied, stops when screen off) with
-        // System.currentTimeMillis() + delay() — keeps running with screen off
+        // System.currentTimeMillis() + delay() keeps running with screen off
         val startTime = System.currentTimeMillis()
         while (true) {
-            val frameTime = System.currentTimeMillis()
+            val frameTime    = System.currentTimeMillis()
             val currentTimeMs = frameTime - startTime
-            val loopTime = currentTimeMs % timeline.loopDurationMs
+            val loopTime     = currentTimeMs % timeline.loopDurationMs
+
             // Surface current bar index to UI
             val currentBar = timeline.events
                 .firstOrNull { loopTime >= it.startMs && loopTime < it.startMs + it.durationMs }
@@ -666,6 +913,7 @@ private fun PlaybackLoopJamLabHandler(
                 lastBarIndexRef[0] = currentBar
                 onBarChanged(currentBar)
             }
+
             if (lastSequencerLoopTime == -1L) {
                 lastSequencerLoopTime = loopTime
                 if (loopTime < 100) {
@@ -673,12 +921,13 @@ private fun PlaybackLoopJamLabHandler(
                         .filter { it.timeMs == 0L && it.channel in activeChannels }
                         .forEach { event ->
                             audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                            pendingNoteOffs.add(PendingNoteOff(
-                                event.channel, event.pitch, currentTimeMs + event.durationMs
-                            ))
+                            pendingNoteOffs.add(
+                                PendingNoteOff(event.channel, event.pitch, currentTimeMs + event.durationMs)
+                            )
                         }
                 }
             }
+
             if (loopTime < lastSequencerLoopTime) {
                 backingTrackEvents
                     .filter {
@@ -686,12 +935,13 @@ private fun PlaybackLoopJamLabHandler(
                     }
                     .forEach { event ->
                         audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                        pendingNoteOffs.add(PendingNoteOff(
-                            event.channel, event.pitch, currentTimeMs + event.durationMs
-                        ))
+                        pendingNoteOffs.add(
+                            PendingNoteOff(event.channel, event.pitch, currentTimeMs + event.durationMs)
+                        )
                     }
                 lastSequencerLoopTime = -1L
             }
+
             backingTrackEvents
                 .filter {
                     it.timeMs > lastSequencerLoopTime &&
@@ -700,11 +950,12 @@ private fun PlaybackLoopJamLabHandler(
                 }
                 .forEach { event ->
                     audioEngine.noteOn(event.channel, event.pitch, event.velocity)
-                    pendingNoteOffs.add(PendingNoteOff(
-                        event.channel, event.pitch, currentTimeMs + event.durationMs
-                    ))
+                    pendingNoteOffs.add(
+                        PendingNoteOff(event.channel, event.pitch, currentTimeMs + event.durationMs)
+                    )
                 }
             lastSequencerLoopTime = loopTime
+
             if (pendingNoteOffs.isNotEmpty()) {
                 val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs }
                 if (dueOffs.isNotEmpty()) {
@@ -712,7 +963,18 @@ private fun PlaybackLoopJamLabHandler(
                     pendingNoteOffs.removeAll(dueOffs.toSet())
                 }
             }
-            delay(8L) // ~120 polls/sec — tight enough for musical timing, runs with screen off
+
+            // NEW made by Claude 09/08/2026
+            // Immediately silence channels that just went inactive — prevents sustained
+            // pads (strings, ensemble, organ) from ringing out when the user turns
+            // them OFF. Runs every 8ms so cut-off is imperceptible.
+            val inactiveNoteOffs = pendingNoteOffs.filter { it.channel !in activeChannels }
+            if (inactiveNoteOffs.isNotEmpty()) {
+                inactiveNoteOffs.forEach { audioEngine.noteOff(it.channel, it.pitch) }
+                pendingNoteOffs.removeAll(inactiveNoteOffs.toSet())
+            }
+
+            delay(8L) // ~120 polls/sec, runs with screen off
         }
     }
 }
@@ -720,13 +982,11 @@ private fun PlaybackLoopJamLabHandler(
 // ================================================================
 // HELPER DATA CLASSES
 // ================================================================
-
 private data class PendingNoteOff(val channel: Int, val pitch: Int, val offAtMs: Long)
 
 // ================================================================
 // COMPOSABLE HELPERS
 // ================================================================
-
 @Composable
 private fun SimpleDropdown(
     selected: String,
@@ -815,15 +1075,33 @@ private fun PresetDropdownJamLab(
 // ================================================================
 // INSTRUMENT ROLE MATRIX
 // made by Claude 10/07
+// MODIFIED made by Claude 09/08/2026: genre-aware + SF2-aware row visibility
 // ================================================================
-
 @Composable
 private fun InstrumentRoleMatrix(
     instrumentRoles: Map<String, InstrumentRole>,
     selectedKey: String,
+    genre: Genre,                                       // NEW made by Claude 09/08/2026
+    availablePatches: Map<String, List<PatchOption>>,   // NEW made by Claude 09/08/2026
     onRoleChanged: (String, InstrumentRole) -> Unit,
     onInstrumentSelected: (String) -> Unit
 ) {
+    // NEW made by Claude 09/08/2026
+    // Determine which rows to show:
+    //   - SF2_ONLY_INSTRUMENTS: visible only if the loaded SF2 has patches for them
+    //   - All others: visible if the genre includes them, AND (SF2 has patches OR we're
+    //     in fallback mode — availablePatches empty means SF2 returned nothing)
+    val isInFallbackMode = availablePatches.isEmpty()
+    val genreVisible = genreInstrumentVisibility[genre]
+        ?: INSTRUMENT_DEFS.map { it.key }.toSet()
+    val visibleDefs = INSTRUMENT_DEFS.filter { def ->
+        val hasSF2Patches = availablePatches[def.key]?.isNotEmpty() == true
+        when (def.key) {
+            in SF2_ONLY_INSTRUMENTS -> hasSF2Patches
+            else -> def.key in genreVisible && (isInFallbackMode || hasSF2Patches)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -853,8 +1131,8 @@ private fun InstrumentRoleMatrix(
             }
         }
 
-        INSTRUMENT_DEFS.forEach { def ->
-            val role = instrumentRoles[def.key] ?: InstrumentRole.OFF
+        visibleDefs.forEach { def ->
+            val role     = instrumentRoles[def.key] ?: InstrumentRole.OFF
             val isActive = role != InstrumentRole.OFF
             HorizontalDivider()
             Row(
@@ -923,7 +1201,7 @@ private fun RoleRadio(
                     when {
                         !enabled -> Color.Transparent
                         selected -> MaterialTheme.colorScheme.primary
-                        else -> Color.Transparent
+                        else     -> Color.Transparent
                     }
                 )
                 .border(
@@ -931,7 +1209,7 @@ private fun RoleRadio(
                     when {
                         !enabled -> Color.Gray.copy(alpha = 0.25f)
                         selected -> MaterialTheme.colorScheme.primary
-                        else -> Color.Gray
+                        else     -> Color.Gray
                     },
                     CircleShape
                 )
@@ -949,6 +1227,7 @@ private fun RoleRadio(
         }
     }
 }
+
 // made by Claude 11/07: Live progression display for Jam Lab
 @Composable
 private fun JamLabProgressionDisplay(
@@ -962,7 +1241,6 @@ private fun JamLabProgressionDisplay(
             .distinctBy { it.barIndex }
             .map { it.chord }
     }
-
     Column(
         modifier = modifier
             .background(Color(0xFF1A1A2E), RoundedCornerShape(8.dp))
@@ -1001,11 +1279,12 @@ private fun JamLabProgressionDisplay(
         }
     }
 }
+
 // ================================================================
 // INSTRUMENT PATTERN PANEL
 // made by Claude 10/07
+// MODIFIED made by Claude 09/08/2026: updated role labels for expanded instrument set
 // ================================================================
-
 @Composable
 private fun InstrumentPatternPanel(
     instrumentKey: String,
@@ -1017,19 +1296,30 @@ private fun InstrumentPatternPanel(
     onPickingSelected: (PickingPreset) -> Unit,
     selectedPatch: PatchOption?,
     onPatchSelected: (PatchOption) -> Unit,
-    availablePatches: Map<String, List<PatchOption>>, // NEW made by Claude 08/08/2026
+    availablePatches: Map<String, List<PatchOption>>,
     audioEngine: JamLabAudioEngine
 ) {
     val def = INSTRUMENT_DEFS.find { it.key == instrumentKey } ?: return
+
+    // MODIFIED made by Claude 09/08/2026 — updated for full instrument set
+    // Guitar/bass: "strum" / "picking" (hands on strings)
+    // Keyboard/string instruments: "chord" / "arpeggio" (what the notes form)
+    // Wind/single-note instruments: "chord" / "melody" (what they play)
+    val chordInstruments  = setOf("piano", "organ", "strings", "ensemble", "synth")
+    val melodicInstruments = setOf("brass", "reed", "pipe", "ethnic")
     val roleLabel = when (role) {
-        InstrumentRole.OFF -> "off"
-        InstrumentRole.STRUM_CHORD ->
-            if (instrumentKey in listOf("piano", "strings", "winds")) "chord patterns"
-            else "strum patterns"
-        InstrumentRole.PICK_ARPEGGIO ->
-            if (instrumentKey in listOf("piano", "strings", "winds")) "arpeggio patterns"
-            else "picking patterns"
-        InstrumentRole.HYBRID -> "hybrid patterns"
+        InstrumentRole.OFF         -> "off"
+        InstrumentRole.STRUM_CHORD -> when (instrumentKey) {
+            in chordInstruments   -> "chord patterns"
+            in melodicInstruments -> "line patterns"
+            else                  -> "strum patterns"   // guitar, bass
+        }
+        InstrumentRole.PICK_ARPEGGIO -> when (instrumentKey) {
+            in chordInstruments   -> "arpeggio patterns"
+            in melodicInstruments -> "melody patterns"
+            else                  -> "picking patterns"  // guitar, bass
+        }
+        InstrumentRole.HYBRID      -> "hybrid patterns"
     }
 
     Column(
@@ -1112,21 +1402,22 @@ private fun InstrumentPatternPanel(
                 color = Color.Gray,
                 modifier = Modifier.padding(bottom = 6.dp)
             )
-            // MODIFIED made by Claude 08/08/2026 — dynamic SF2 list, falls back to hardcoded if empty
+
+            // Dynamic SF2 list, falls back to hardcoded if empty
             val programs = availablePatches[instrumentKey]
                 ?.takeIf { it.isNotEmpty() }
                 ?: (INSTRUMENT_PROGRAMS[instrumentKey] ?: emptyList())
+
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(programs.size) { index ->
-                    val patch = programs[index]
+                    val patch      = programs[index]
                     val isSelected = patch.bank == selectedPatch?.bank &&
                             patch.program == selectedPatch?.program
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // Bank:Program badge — NEW made by Claude 05/08/2026
-                        // Format: 000:027 so patch addresses are readable during auditioning
+                        // Bank:Program badge — format 000:027 for auditioning
                         Box(
                             modifier = Modifier
                                 .background(
@@ -1177,4 +1468,96 @@ private fun InstrumentPatternPanel(
             }
         }
     }
+}
+
+// ================================================================
+// VOLUME MIXER POPUP
+// NEW made by Claude 09/08/2026
+// Shows one slider per visible instrument for the current genre.
+// Sliders are additional multipliers on top of StyleEngine's internal
+// channelVolumeScale — 100% = "use StyleEngine's default as-is".
+// Settings are stored per-genre in JamLabScreen so switching genres
+// preserves each genre's individual mix.
+// ================================================================
+@Composable
+private fun VolumeMixerPopup(
+    genre: Genre,
+    availablePatches: Map<String, List<PatchOption>>,
+    channelVolume: Map<Int, Float>,
+    onVolumeChanged: (channel: Int, value: Float) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Same visibility logic as InstrumentRoleMatrix — only show relevant rows
+    val isInFallbackMode = availablePatches.isEmpty()
+    val genreVisible = genreInstrumentVisibility[genre]
+        ?: INSTRUMENT_DEFS.map { it.key }.toSet()
+    val visibleDefs = INSTRUMENT_DEFS.filter { def ->
+        val hasSF2Patches = availablePatches[def.key]?.isNotEmpty() == true
+        when (def.key) {
+            in SF2_ONLY_INSTRUMENTS -> hasSF2Patches
+            else -> def.key in genreVisible && (isInFallbackMode || hasSF2Patches)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "🎚 Channel Mix — ${genre.displayName}",
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    "100% = genre default. Adjustments are remembered per genre.",
+                    fontSize = 10.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                visibleDefs.forEach { def ->
+                    val volume = channelVolume[def.channel] ?: 1.0f
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${def.emoji} ${def.displayName}",
+                                fontSize = 12.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${(volume * 100).roundToInt()}%",
+                                fontSize = 11.sp,
+                                color = if (volume != 1.0f)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    Color.Gray,
+                                fontWeight = if (volume != 1.0f) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.width(42.dp),
+                                textAlign = TextAlign.End
+                            )
+                        }
+                        Slider(
+                            value = volume,
+                            onValueChange = { onVolumeChanged(def.channel, it) },
+                            valueRange = 0f..1.5f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text("Close") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onReset) { Text("Reset genre") }
+        }
+    )
 }

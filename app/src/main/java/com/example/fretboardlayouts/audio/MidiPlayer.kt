@@ -13,6 +13,8 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
@@ -20,14 +22,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class MidiPlayer(private val context: Context) {
     private val TAG = "MidiPlayer"
-    
-    // Engine states shown in UI
+
     var currentEngineName = "Initializing..."
         private set
-        
+
     private var isFluidSynthAvailable = false
     private var isHardwareMidiAvailable = false
-
 
     // Fallback Engine (High Quality Polyphonic)
     private var fallbackAudioTrack: AudioTrack? = null
@@ -38,7 +38,7 @@ class MidiPlayer(private val context: Context) {
 
     class ActiveVoice(val samples: ShortArray, var position: Int = 0)
 
-    // Hardware MIDI Fallback (The "90s" sound)
+    // Hardware MIDI Fallback
     private val midiManager: MidiManager = context.getSystemService(Context.MIDI_SERVICE) as MidiManager
     private var inputPort: MidiInputPort? = null
     private var midiDevice: android.media.midi.MidiDevice? = null
@@ -50,19 +50,16 @@ class MidiPlayer(private val context: Context) {
     private fun setupAudio() {
         Log.i(TAG, ">>> STARTING AUDIO ENGINE BOOTSTRAP <<<")
 
-        // 1. ATTEMPT FLUIDSYNTH (The only one that sounds "Real")
         val sfPath = copySoundFontToInternalStorage()
         if (sfPath != null) {
             try {
                 Log.i(TAG, "Attempting to load high-quality FluidSynth engine...")
-
                 val success = FluidSynthEngine.start(sfPath)
-
                 if (success) {
                     isFluidSynthAvailable = true
                     currentEngineName = "FluidSynth Studio (Active)"
                     Log.i(TAG, "✅ SUCCESS: Studio Engine Active.")
-                    return 
+                    return
                 } else {
                     Log.e(TAG, "❌ FAILURE: SoundFont rejected (sfId -1).")
                 }
@@ -71,15 +68,14 @@ class MidiPlayer(private val context: Context) {
             }
         }
 
-        // 2. FALLBACK TO PLUCKY ENGINE (Priority 2 - Sounds better than beeps)
         Log.w(TAG, "⚠️ FluidSynth failed. Using Custom Plucky Synthesis.")
         currentEngineName = "Plucky Synth (Fallback)"
         startAudioWorker()
-        
-        // 3. TRY HARDWARE MIDI (Background only)
+
         val hardwareSynth = midiManager.devices.find { info ->
-            info.properties.getString(MidiDeviceInfo.PROPERTY_NAME)?.contains("Synth", ignoreCase = true) == true ||
-            info.type == MidiDeviceInfo.TYPE_VIRTUAL
+            info.properties.getString(MidiDeviceInfo.PROPERTY_NAME)
+                ?.contains("Synth", ignoreCase = true) == true ||
+                    info.type == MidiDeviceInfo.TYPE_VIRTUAL
         }
         if (hardwareSynth != null) {
             midiManager.openDevice(hardwareSynth, { device ->
@@ -115,7 +111,14 @@ class MidiPlayer(private val context: Context) {
             val mixBuffer = FloatArray(bufferSize)
             val outBuffer = ShortArray(bufferSize)
 
-            while (true) {
+            // MODIFIED 10/08/2026 — Replaced infinite `while(true)` with
+            // `while(isActive)` so coroutine cancellation is respected.
+            // Previously audioWorkerJob?.cancel() marked the job cancelled but
+            // the tight render loop had no suspension point, so the thread kept
+            // running indefinitely after cancel() was called.
+            // Added delay(1) as a cooperative yield when the voice list is empty
+            // to avoid burning a full CPU core on silence.
+            while (isActive) {
                 mixBuffer.fill(0f)
                 if (activeVoices.isNotEmpty()) {
                     val iterator = activeVoices.iterator()
@@ -123,27 +126,42 @@ class MidiPlayer(private val context: Context) {
                         val voice = iterator.next()
                         for (i in 0 until bufferSize) {
                             if (voice.position < voice.samples.size) {
-                                mixBuffer[i] += (voice.samples[voice.position] / 32768f) * 0.4f 
+                                mixBuffer[i] += (voice.samples[voice.position] / 32768f) * 0.4f
                                 voice.position++
                             }
                         }
                         if (voice.position >= voice.samples.size) activeVoices.remove(voice)
                     }
+                    for (i in 0 until bufferSize) {
+                        outBuffer[i] = (mixBuffer[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
+                    }
+                    track.write(outBuffer, 0, bufferSize)
+                } else {
+                    delay(1) // yield when silent — lets cancel() take effect
                 }
-                for (i in 0 until bufferSize) {
-                    outBuffer[i] = (mixBuffer[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
-                }
-                track.write(outBuffer, 0, bufferSize)
             }
         }
     }
 
     private fun ensureFallbackTrack() {
         if (fallbackAudioTrack == null) {
-            val minBufferSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val minBufferSize = AudioTrack.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
             fallbackAudioTrack = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SAMPLE_RATE).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
                 .setBufferSizeInBytes((minBufferSize * 4).coerceAtLeast(16384))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
@@ -159,14 +177,17 @@ class MidiPlayer(private val context: Context) {
         } else {
             val vol = velocity / 127f
             val samples = when (channel) {
-                9 -> InstrumentSynthesis.generateDrum(pitch, vol)
-                1 -> InstrumentSynthesis.generateBass(pitch, vol)
+                9    -> InstrumentSynthesis.generateDrum(pitch, vol)
+                1    -> InstrumentSynthesis.generateBass(pitch, vol)
                 else -> InstrumentSynthesis.generateGuitar(pitch, vol)
             }
             activeVoices.add(ActiveVoice(samples))
-            
             if (isHardwareMidiAvailable) {
-                val buffer = byteArrayOf((0x90 or (channel and 0x0F)).toByte(), (pitch and 0x7F).toByte(), (velocity and 0x7F).toByte())
+                val buffer = byteArrayOf(
+                    (0x90 or (channel and 0x0F)).toByte(),
+                    (pitch and 0x7F).toByte(),
+                    (velocity and 0x7F).toByte()
+                )
                 inputPort?.send(buffer, 0, 3)
             }
         }
@@ -176,7 +197,11 @@ class MidiPlayer(private val context: Context) {
         if (isFluidSynthAvailable) {
             FluidSynthEngine.nativeNoteOff(channel, pitch)
         } else if (isHardwareMidiAvailable) {
-            val buffer = byteArrayOf((0x80 or (channel and 0x0F)).toByte(), (pitch and 0x7F).toByte(), 0.toByte())
+            val buffer = byteArrayOf(
+                (0x80 or (channel and 0x0F)).toByte(),
+                (pitch and 0x7F).toByte(),
+                0.toByte()
+            )
             inputPort?.send(buffer, 0, 3)
         }
     }
@@ -184,8 +209,8 @@ class MidiPlayer(private val context: Context) {
     fun stopAllNotes() {
         if (isFluidSynthAvailable) {
             for (ch in 0..15) {
-                for (note in 0..127) { // NEW — silence every possible note on every channel
-                    FluidSynthEngine.nativeNoteOff(ch, note) // NEW
+                for (note in 0..127) {
+                    FluidSynthEngine.nativeNoteOff(ch, note)
                 }
             }
         }
@@ -195,7 +220,10 @@ class MidiPlayer(private val context: Context) {
         if (isFluidSynthAvailable) {
             FluidSynthEngine.nativeProgramChange(channel, program)
         } else if (isHardwareMidiAvailable) {
-            val buffer = byteArrayOf((0xC0 or (channel and 0x0F)).toByte(), (program and 0x7F).toByte())
+            val buffer = byteArrayOf(
+                (0xC0 or (channel and 0x0F)).toByte(),
+                (program and 0x7F).toByte()
+            )
             inputPort?.send(buffer, 0, 2)
         }
     }
@@ -211,9 +239,20 @@ class MidiPlayer(private val context: Context) {
             audioWorkerJob?.cancel()
             inputPort?.close()
             midiDevice?.close()
-            fallbackAudioTrack?.stop()
-            fallbackAudioTrack?.release()
-            FluidSynthEngine.stop()
+            // MODIFIED 10/08/2026 — Guard double-release: null out fallbackAudioTrack
+            // after releasing so a second call to release() does not throw on an
+            // already-released AudioTrack.
+            fallbackAudioTrack?.let {
+                it.stop()
+                it.release()
+            }
+            fallbackAudioTrack = null
+            // MODIFIED 10/08/2026 — Call FluidSynthEngine.release() instead of .stop().
+            // .release() decrements the shared reference count and only tears down the
+            // engine when the last owner (MainViewModel or JamLabViewModel) lets go.
+            // Previously .stop() unconditionally killed the singleton regardless of
+            // which screen was still using it.
+            FluidSynthEngine.release()
         } catch (e: Exception) {
             Log.e(TAG, "Release Error: ${e.message}")
         }
