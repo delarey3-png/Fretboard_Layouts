@@ -12,9 +12,11 @@ data class ChordSlot(
     val quality: ChordQuality,
     val romanLabel: String,
     val rootOffset: Int = 0, // e.g. -1 for flat, +1 for sharp
-    val userQualityOverride: ChordQuality? = null
+    val genreQualityOverride: ChordQuality? = null, // NEW made by Claude 17/08/2026 — set by applyGenreChordStyle(); genre styling writes here
+    val userQualityOverride: ChordQuality? = null   // reserved for future pencil-icon per-chord editing; always wins
 ) {
-    val effectiveQuality: ChordQuality get() = userQualityOverride ?: quality
+    // Three-tier priority: user's explicit pick > genre style > base quality from progression // MODIFIED
+    val effectiveQuality: ChordQuality get() = userQualityOverride ?: genreQualityOverride ?: quality // MODIFIED
 }
 
 private val ROMAN_TO_DEGREE = mapOf(
@@ -31,7 +33,7 @@ private val ROMAN_TO_DEGREE = mapOf(
 fun chordSlot(roman: String): ChordSlot {
     var working = roman.trim()
     var offset = 0
-    
+
     // Handle b (flat) or # (sharp) prefix
     if (working.startsWith('b')) {
         offset = -1
@@ -43,7 +45,7 @@ fun chordSlot(roman: String): ChordSlot {
 
     val base = working.trimEnd('7', '°', '+', '2', '4', '9')
         .replace("sus", "").replace("add", "")
-    
+
     val degree = ROMAN_TO_DEGREE[base] ?: error("Unknown roman numeral: $roman")
     val isLower = base[0].isLowerCase()
     val has7 = roman.contains("7")
@@ -106,7 +108,7 @@ object Progressions {
 fun resolveProgression(key: MusicKey, slots: List<ChordSlot>): List<ResolvedChord> {
     // Diatonic scale is already modality-aware (Major or Natural Minor)
     val diatonic = diatonicScalePitchClasses(key)
-    
+
     return slots.map { slot ->
         val baseRoot = diatonic[(slot.degree - 1).coerceIn(0, 6)]
         val finalRoot = (baseRoot + slot.rootOffset + 12) % 12

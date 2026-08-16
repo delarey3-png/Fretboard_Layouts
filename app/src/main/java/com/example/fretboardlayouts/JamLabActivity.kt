@@ -53,6 +53,7 @@ import com.example.fretboardlayouts.audio.GenreInstruments // NEW made by Claude
 import com.example.fretboardlayouts.audio.JamLabAudioEngine
 import com.example.fretboardlayouts.theory.ChordOverlayMode
 import com.example.fretboardlayouts.theory.Genre
+import com.example.fretboardlayouts.theory.GenreChordStyles
 import com.example.fretboardlayouts.theory.HumanisationLevel
 import com.example.fretboardlayouts.theory.JamTimeline
 import com.example.fretboardlayouts.theory.MusicKey
@@ -73,6 +74,7 @@ import com.example.fretboardlayouts.theory.buildVisualStrumState
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
 import com.example.fretboardlayouts.theory.InstrumentRole // made by Claude 11/07
+import com.example.fretboardlayouts.theory.applyGenreChordStyle
 import kotlinx.coroutines.delay // made by Claude 08/08/2026
 
 // ================================================================
@@ -453,6 +455,10 @@ fun JamLabScreen() {
     var currentHumanisation   by remember { mutableStateOf(HumanisationLevel.OFF) } // made by Claude 11/07
     var currentBarIndex       by remember { mutableStateOf(0) }                      // made by Claude 11/07
 
+    var currentGenreChordStyle by remember(currentGenre) { // NEW made by Claude 17/08/2026
+        mutableStateOf(GenreChordStyles.defaultFor(currentGenre)) // NEW
+    } // NEW
+
     val currentKeyObj = remember(currentKey) { MusicKey.fromString(currentKey) }
     val progressionOptions = remember(currentKeyObj) {
         buildProgressionOptions(currentKeyObj)
@@ -562,6 +568,20 @@ fun JamLabScreen() {
             options = Genre.values().map { it.displayName },
             onSelected = { name ->
                 currentGenre = Genre.values().find { it.displayName == name } ?: Genre.ROCK
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // NEW made by Claude 17/08/2026 — chord style selector
+        Text("Chord Style", style = MaterialTheme.typography.labelSmall)
+        val chordStyleOptions = remember(currentGenre) { GenreChordStyles.stylesFor(currentGenre) }
+        SimpleDropdown(
+            selected = currentGenreChordStyle.displayName,
+            options = chordStyleOptions.map { it.displayName },
+            onSelected = { name ->
+                currentGenreChordStyle = chordStyleOptions.find { it.displayName == name }
+                    ?: GenreChordStyles.defaultFor(currentGenre)
             },
             modifier = Modifier.fillMaxWidth()
         )
@@ -720,9 +740,10 @@ fun JamLabScreen() {
                     val key = MusicKey.fromString(currentKey)
                     val progression =
                         Progressions.ALL[currentProgression] ?: Progressions.ALL.values.first()
+                    val styledProgression = applyGenreChordStyle(progression, currentGenreChordStyle) // NEW
                     val timeline = buildJamTimeline(
                         key = key,
-                        progressionSlots = progression,
+                        progressionSlots = styledProgression, // MODIFIED — was `progression`
                         scaleType = currentScale,
                         chordOverlayMode = ChordOverlayMode.ALL_CHORD_TONES,
                         tempoBpm = currentTempo,
