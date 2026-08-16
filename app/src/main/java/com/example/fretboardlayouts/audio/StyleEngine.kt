@@ -62,16 +62,16 @@ object StyleEngine {
     // Extended for full GM group channel map. Channel 3 = Organ (was Strings).
     // Strings now on channel 4. Starting values — tune by ear per genre.
     private val channelVolumeScale = mapOf(
-        0  to 1.00f,  // Guitar    — reference level
-        1  to 0.88f,  // Bass      — slightly under guitar
+        0  to 0.78f,  // Guitar    — pulled back into the band mix
+        1  to 0.98f,  // Bass      — slightly under guitar
         2  to 0.80f,  // Piano
         3  to 0.75f,  // Organ     — same level as old Strings (ch3 reassigned 09/08/2026)
         4  to 0.75f,  // Strings   — shifted from ch3
         5  to 0.70f,  // Ensemble  — pads sit under strings
-        6  to 0.82f,  // Brass     — section needs presence
-        7  to 0.78f,  // Reed      — solo instrument
+        6  to 0.78f,  // Brass     — section needs presence
+        7  to 0.75f,  // Reed      — solo instrument
         8  to 0.72f,  // Pipe      — light instrument
-        9  to 0.95f,  // Drums
+        9  to 1.00f,  // Drums
         10 to 0.65f,  // Synth     — pads sit under everything
         11 to 0.75f   // Ethnic
     )

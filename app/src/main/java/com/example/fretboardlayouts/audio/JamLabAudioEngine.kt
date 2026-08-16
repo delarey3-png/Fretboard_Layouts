@@ -17,6 +17,9 @@ class JamLabAudioEngine(context: Context) {
     private val TAG = "JamLabAudioEngine"
     private val midiPlayer = MidiPlayer(context)
 
+    /** Exposes the underlying engine name for status display in UI */ // NEW
+    val engineName: String get() = midiPlayer.currentEngineName // NEW
+
     init {
         Log.i(TAG, "JamLabAudioEngine initialized (isolated from MainViewModel)")
     }

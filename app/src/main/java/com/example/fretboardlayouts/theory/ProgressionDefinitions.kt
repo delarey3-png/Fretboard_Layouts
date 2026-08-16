@@ -85,7 +85,7 @@ object Progressions {
         "12 Bar Blues" to prog(
             "I7", "I7", "I7", "I7",
             "IV7", "IV7", "I7", "I7",
-            "V7", "IV7", "I7", "I7"
+            "V7", "IV7", "I7", "V7"
         )
     )
 

@@ -7,8 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fretboardlayouts.audio.BackingTrackGenerator
-import com.example.fretboardlayouts.audio.GenreInstruments
-import com.example.fretboardlayouts.audio.MidiPlayer
+import com.example.fretboardlayouts.audio.JamLabAudioEngine // NEW
 import com.example.fretboardlayouts.audio.StyleEngine
 import com.example.fretboardlayouts.theory.ChordOverlayMode
 import com.example.fretboardlayouts.theory.ChordTonePosition
@@ -28,6 +27,7 @@ import com.example.fretboardlayouts.theory.generateScaleOverlay
 import com.example.fretboardlayouts.theory.overlayScalePitchClasses
 import com.example.fretboardlayouts.theory.resolveSelection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job // NEW
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,7 +41,7 @@ sealed class AppState {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val midiPlayer = MidiPlayer(application)
+    private val audioEngine = JamLabAudioEngine(application) // NEW
     private var lastPlayedEventIndex = -1
 
     // --- SETUP STATE ---
@@ -89,8 +89,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // The pre-generated MIDI events for the current jam
     private var backingTrackEvents = listOf<BackingTrackGenerator.MidiNoteEvent>()
     private var lastSequencerLoopTime = -1L
-    private data class PendingNoteOff(val channel: Int, val pitch: Int, val offAtMs: Long) // NEW
-    private val pendingNoteOffs = mutableListOf<PendingNoteOff>() // NEW
+    private var playbackJob: Job? = null // NEW
+    private data class PendingNoteOff(val channel: Int, val pitch: Int, val offAtMs: Long)
+    private val pendingNoteOffs = mutableListOf<PendingNoteOff>()
 
     // Loading messages
     private val loadingMessages = listOf(
@@ -101,11 +102,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     fun startGeneratingTrack() {
-        Log.i("MidiPlayer", ">>> START GENERATING TRACK - Genre: ${selectedGenre.value} <<<")
+        Log.i("MainViewModel", ">>> START GENERATING TRACK - Genre: ${selectedGenre.value} <<<") // MODIFIED
         lastPlayedEventIndex = -1
         lastSequencerLoopTime = -1L
         backingTrackEvents = emptyList()
-        pendingNoteOffs.clear() // NEW
+        pendingNoteOffs.clear()
 
         currentScreenState.value = AppState.Setup
         viewModelScope.launch {
@@ -156,11 +157,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 timeline, selectedGenre.value, resolvedPreset
             )
 
-            if (midiPlayer.isMidiAvailable()) {
-                midiPlayer.setupInstruments(GenreInstruments.forGenre(selectedGenre.value))
-            }
+            audioEngine.loadGenrePatches(selectedGenre.value) // NEW — replaces midiPlayer.setupInstruments()
 
-            lastSequencerLoopTime = -1L
+            startPlaybackLoop(timeline) // NEW — launches the 8ms loop; also resets lastSequencerLoopTime
 
             withContext(Dispatchers.Main) {
                 currentScreenState.value = AppState.Playback(timeline)
@@ -168,30 +167,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun triggerNoteOn(event: BackingTrackGenerator.MidiNoteEvent, atTimeMs: Long) { // NEW
-        midiPlayer.noteOn(event.channel, event.pitch, event.velocity) // NEW
-        pendingNoteOffs.add(PendingNoteOff(event.channel, event.pitch, atTimeMs + event.durationMs)) // NEW
+    // NEW — 8ms polling loop, runs for the lifetime of a jam session.
+    // Mirrors PlaybackLoopJamLabHandler in JamLabActivity.
+    // Runs on Dispatchers.Default — does not block the UI thread.
+    // Screen-off audio works because this is a coroutine delay, not withFrameMillis.
+    private fun startPlaybackLoop(timeline: JamTimeline) { // NEW
+        playbackJob?.cancel() // NEW
+        lastSequencerLoopTime = -1L // NEW
+        val startMs = System.currentTimeMillis() // NEW
+        playbackJob = viewModelScope.launch(Dispatchers.Default) { // NEW
+            while (true) { // NEW
+                val elapsed = System.currentTimeMillis() - startMs // NEW
+                tickSequencer(timeline, elapsed) // NEW
+                delay(8L) // NEW
+            } // NEW
+        } // NEW
     } // NEW
 
-    fun playChord(timeline: JamTimeline, currentTimeMs: Long) {
+    private fun triggerNoteOn(event: BackingTrackGenerator.MidiNoteEvent, atTimeMs: Long) {
+        audioEngine.noteOn(event.channel, event.pitch, event.velocity) // MODIFIED
+        pendingNoteOffs.add(PendingNoteOff(event.channel, event.pitch, atTimeMs + event.durationMs))
+    }
+
+    // MODIFIED — was playChord(); now private, called only by startPlaybackLoop()
+    private fun tickSequencer(timeline: JamTimeline, currentTimeMs: Long) { // MODIFIED
         val loopTime = currentTimeMs % timeline.loopDurationMs
 
         // 1. DETERMINISTIC SEQUENCER
         if (lastSequencerLoopTime == -1L) {
-            Log.i("MidiPlayer", ">>> SEQUENCER STARTING at ${loopTime}ms <<<")
+            Log.i("MainViewModel", ">>> SEQUENCER STARTING at ${loopTime}ms <<<") // MODIFIED
             lastSequencerLoopTime = loopTime
             if (loopTime < 100) {
                 backingTrackEvents.filter { it.timeMs == 0L }.forEach { event ->
-                    triggerNoteOn(event, currentTimeMs) // MODIFIED
+                    triggerNoteOn(event, currentTimeMs)
                 }
             }
         }
 
         // Handle loop wrap-around
         if (loopTime < lastSequencerLoopTime) {
-            Log.i("MidiPlayer", ">>> LOOP WRAP DETECTED <<<")
+            Log.i("MainViewModel", ">>> LOOP WRAP DETECTED <<<") // MODIFIED
             backingTrackEvents.filter { it.timeMs > lastSequencerLoopTime }.forEach { event ->
-                triggerNoteOn(event, currentTimeMs) // MODIFIED
+                triggerNoteOn(event, currentTimeMs)
             }
             lastSequencerLoopTime = -1L
         }
@@ -200,23 +217,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         backingTrackEvents
             .filter { it.timeMs > lastSequencerLoopTime && it.timeMs <= loopTime }
             .forEach { event ->
-                Log.i("MidiPlayer", "Sequencer triggering note: ch=${event.channel} pitch=${event.pitch}")
-                triggerNoteOn(event, currentTimeMs) // MODIFIED
+                Log.i("MainViewModel", "Sequencer triggering note: ch=${event.channel} pitch=${event.pitch}") // MODIFIED
+                triggerNoteOn(event, currentTimeMs)
             }
         lastSequencerLoopTime = loopTime
 
-        // 2. Fire any note-offs that are due, so notes don't ring forever // NEW
-        if (pendingNoteOffs.isNotEmpty()) { // NEW
-            val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs } // NEW
-            if (dueOffs.isNotEmpty()) { // NEW
-                dueOffs.forEach { midiPlayer.noteOff(it.channel, it.pitch) } // NEW
-                pendingNoteOffs.removeAll(dueOffs) // NEW
-            } // NEW
-        } // NEW
+        // 2. Fire any note-offs that are due, so notes don't ring forever
+        if (pendingNoteOffs.isNotEmpty()) {
+            val dueOffs = pendingNoteOffs.filter { it.offAtMs <= currentTimeMs }
+            if (dueOffs.isNotEmpty()) {
+                dueOffs.forEach { audioEngine.noteOff(it.channel, it.pitch) } // MODIFIED
+                pendingNoteOffs.removeAll(dueOffs)
+            }
+        }
 
         // 3. Chord index tracking for live overlay
         val currentEvent = timeline.events.find {
-            loopTime >= it.startMs && loopTime < it.startMs + it.durationMs // MODIFIED (was currentTimeMs)
+            loopTime >= it.startMs && loopTime < it.startMs + it.durationMs
         } ?: return
 
         val eventIndex = timeline.events.indexOf(currentEvent)
@@ -227,11 +244,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopAudio() {
+        playbackJob?.cancel() // NEW — kill the 8ms loop first
+        playbackJob = null // NEW
         lastPlayedEventIndex = -1
         lastSequencerLoopTime = -1L
-        pendingNoteOffs.forEach { midiPlayer.noteOff(it.channel, it.pitch) } // NEW — silence anything still ringing
-        pendingNoteOffs.clear() // NEW
-        midiPlayer.stopAllNotes()
+        pendingNoteOffs.forEach { audioEngine.noteOff(it.channel, it.pitch) } // MODIFIED
+        pendingNoteOffs.clear()
+        audioEngine.stopAudio() // MODIFIED
     }
 
     fun resetToSetup() {
@@ -240,10 +259,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         currentScreenState.value = AppState.Setup
     }
 
-    fun midiPlayerStatus(): String = midiPlayer.currentEngineName
+    fun midiPlayerStatus(): String = audioEngine.engineName // MODIFIED
 
     override fun onCleared() {
         super.onCleared()
-        midiPlayer.release()
+        audioEngine.release() // MODIFIED
     }
 }

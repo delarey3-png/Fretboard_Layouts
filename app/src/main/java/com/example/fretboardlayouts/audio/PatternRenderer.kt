@@ -94,19 +94,34 @@ fun renderStrum(
     ticksPerBeat: Int = 4
 ): List<BackingTrackGenerator.MidiNoteEvent> {
     val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-    // made by Claude 11/07: derive slot duration from grid resolution
-    val totalTicks = timeSignature.beatsPerBar * ticksPerBeat
-    val slotDurationMs = durationMs / totalTicks
 
-    pattern.forEachIndexed { tick, state ->
-        if (state == SlotState.REST) return@forEachIndexed
+    // date: 10/08/26, reason: previously every hit rang for a fixed
+    // "one grid slot" duration regardless of how much actual space it had
+    // before the next hit — so an isolated downstrum (lots of room) and a
+    // downstrum immediately followed by an upstrum (no room) were choked
+    // to the identical short duration. Now each hit rings for the real gap
+    // to the NEXT hit (or to the end of the bar for the last hit).
+    val hitTicks = pattern.indices.filter { pattern[it] != SlotState.REST }
+
+    hitTicks.forEachIndexed { i, tick ->
+        val state = pattern[tick]
         val velocity = if (state == SlotState.ACCENT) accentVelocity else normalVelocity
         val beat = tick / ticksPerBeat
         val tickInBeat = tick % ticksPerBeat
         val time = startMs + beatTickToMs(beat, tickInBeat, ticksPerBeat, timeSignature, durationMs)
+
+        // date: 10/08/26, reason: compute actual available ring time
+        val nextTimeMs = if (i + 1 < hitTicks.size) {
+            val nextTick = hitTicks[i + 1]
+            startMs + beatTickToMs(nextTick / ticksPerBeat, nextTick % ticksPerBeat, ticksPerBeat, timeSignature, durationMs)
+        } else {
+            startMs + durationMs
+        }
+        val availableMs = (nextTimeMs - time).coerceAtLeast(50L)
+
         addStrum(events, time, channel, voicing, velocity,
             isDownstroke = directions[tick],
-            slotDurationMs = slotDurationMs  // made by Claude 11/07
+            slotDurationMs = availableMs  // date: 10/08/26, reason: now real gap, not fixed grid slot
         )
     }
     return events

@@ -1,5 +1,4 @@
 package com.example.fretboardlayouts
-
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -40,11 +39,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,19 +84,16 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.res.painterResource
-
 import com.example.fretboardlayouts.theory.ProgressionOption
 import com.example.fretboardlayouts.theory.buildProgressionOptions
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.PaddingValues
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val viewModel: MainViewModel = viewModel()
             val state by viewModel.currentScreenState
-
             val audioStatus = remember { mutableStateOf("Initializing...") }
             LaunchedEffect(Unit) {
                 while (true) {
@@ -133,11 +127,10 @@ class MainActivity : ComponentActivity() {
                         audioStatus = audioStatus.value,
                         onJamClick = { viewModel.startGeneratingTrack() }
                     )
-
                     is AppState.Loading -> LoadingScreen(message = current.message)
                     is AppState.Playback -> PlaybackScreen(
                         timeline = current.timeline,
-                        onPlayChord = { time -> viewModel.playChord(current.timeline, time) },
+                        currentChordIndex = viewModel.currentChordIndex.value, // NEW
                         onStopAudio = { viewModel.stopAudio() },
                         onBackClick = { viewModel.resetToSetup() },
                         liveScaleOverlay = viewModel.liveScaleOverlay,
@@ -154,11 +147,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
 // ================================================================
 // SETUP SCREEN
 // ================================================================
-
 @Composable
 fun SetupScreen(
     selectedKey: String,
@@ -183,13 +174,11 @@ fun SetupScreen(
     onJamClick: () -> Unit
 ) {
     val context = LocalContext.current // NEW
-
     // made by Gemini 27/06: Get progression options based on modality
     val currentKey = remember(selectedKey) { MusicKey.fromString(selectedKey) }
     val progressionOptions = remember(currentKey) {
         com.example.fretboardlayouts.theory.buildProgressionOptions(currentKey)
     }
-
     // made by Gemini 27/06: Auto-select first valid progression if current one becomes invalid
     LaunchedEffect(currentKey) {
         val currentValid =
@@ -199,7 +188,6 @@ fun SetupScreen(
             if (firstValid != null) onProgressionSelected(firstValid.name)
         }
     }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -214,7 +202,6 @@ fun SetupScreen(
             color = MaterialTheme.colorScheme.secondary
         )
         Spacer(modifier = Modifier.height(16.dp))
-
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 SetupDropdown(
@@ -237,7 +224,6 @@ fun SetupScreen(
                 )
             }
         }
-
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 SetupDropdown(
@@ -264,7 +250,6 @@ fun SetupScreen(
                 )
             }
         }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -277,7 +262,6 @@ fun SetupScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Switch(checked = customStrumMode, onCheckedChange = onCustomStrumModeToggled)
         }
-
         // made by Gemini 27/06: Context-aware progression dropdown
         ProgressionDropdown(
             label = "Progression",
@@ -285,7 +269,6 @@ fun SetupScreen(
             options = progressionOptions,
             onSelected = onProgressionSelected
         )
-
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 SetupDropdown(
@@ -305,9 +288,7 @@ fun SetupScreen(
                 )
             }
         }
-
         Spacer(modifier = Modifier.height(16.dp))
-
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 "Tempo: $selectedTempo BPM",
@@ -321,9 +302,7 @@ fun SetupScreen(
                 steps = 140
             )
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
         Button(
             onClick = onJamClick,
             modifier = Modifier
@@ -342,9 +321,7 @@ fun SetupScreen(
                     .padding(vertical = 4.dp)
             )
         }
-
         Spacer(modifier = Modifier.height(12.dp)) // NEW
-
         Button( // NEW
             onClick = { // NEW
                 context.startActivity(Intent(context, com.example.fretboardlayouts.JamLabActivity::class.java)) // NEW
@@ -355,7 +332,6 @@ fun SetupScreen(
         } // NEW
     }
 }
-
 @Composable
 fun ProgressionDropdown(
     label: String,
@@ -399,7 +375,6 @@ fun ProgressionDropdown(
         HorizontalDivider()
     }
 }
-
 @Composable
 fun SetupDropdown(
     label: String,
@@ -437,7 +412,6 @@ fun SetupDropdown(
         HorizontalDivider()
     }
 }
-
 @Composable
 fun PresetDropdown(
     label: String,
@@ -476,7 +450,6 @@ fun PresetDropdown(
         HorizontalDivider()
     }
 }
-
 @Composable
 fun LoadingScreen(message: String) {
     Column(
@@ -489,15 +462,13 @@ fun LoadingScreen(message: String) {
         Text(message, textAlign = TextAlign.Center)
     }
 }
-
 // ================================================================
 // PLAYBACK SCREEN
 // ================================================================
-
 @Composable
 fun PlaybackScreen(
     timeline: JamTimeline,
-    onPlayChord: (Long) -> Unit,
+    currentChordIndex: Int, // NEW — chord tracking moved to ViewModel; no more withFrameMillis here
     onStopAudio: () -> Unit,
     onBackClick: () -> Unit,
     liveScaleOverlay: List<FretboardPosition>,
@@ -512,7 +483,6 @@ fun PlaybackScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     var showTheoryGrid by remember { mutableStateOf(false) }
-
     DisposableEffect(key1 = Unit) {
         val activity = context.findActivity()
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -531,24 +501,10 @@ fun PlaybackScreen(
             insetsController?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
     }
-
-    var elapsedTime by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(Unit) {
-        val startTime = withFrameMillis { it }
-        while (true) {
-            withFrameMillis { frameTime ->
-                elapsedTime = frameTime - startTime
-                onPlayChord(frameTime - startTime) // MODIFIED — pass absolute elapsed time; playChord() does its own loop-relative math internally now
-            }
-        }
-    }
-
-    val currentLoopTime = elapsedTime % timeline.loopDurationMs
-    val currentEvent = timeline.events.find {
-        currentLoopTime >= it.startMs && currentLoopTime < it.startMs + it.durationMs
-    } ?: timeline.events.first()
-
+    // MODIFIED — currentEvent now comes from the ViewModel's chord index,
+    // which is updated by the 8ms loop in MainViewModel.startPlaybackLoop().
+    // withFrameMillis and elapsedTime are gone; audio continues when screen is off.
+    val currentEvent = timeline.events.getOrNull(currentChordIndex) ?: timeline.events.first() // NEW
     val chordColor = when (currentEvent.chord.degree) {
         1 -> Color(0xFF4CAF50)
         4 -> Color(0xFFFF9800)
@@ -558,7 +514,6 @@ fun PlaybackScreen(
         6 -> Color(0xFF9C27B0)
         else -> Color(0xFFE91E63)
     }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -585,7 +540,6 @@ fun PlaybackScreen(
                     val heightPx = with(density) { maxHeight.toPx() }
                     val nutZoneWidthPx = with(density) { NUT_ZONE_WIDTH_DP.dp.toPx() }
                     val fretboardAreaWidthPx = screenWidthPx - nutZoneWidthPx
-
                     val scale = remember(screenWidthPx, heightPx, nutZoneWidthPx) {
                         computeSharedScale(fretboardAreaWidthPx, heightPx)
                     }
@@ -597,7 +551,6 @@ fun PlaybackScreen(
                     val totalContentWidthDp = with(density) {
                         (nutZoneWidthPx + geometry.usedWidthPx + pickupZonePx).toDp()
                     }
-
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -622,7 +575,6 @@ fun PlaybackScreen(
                                     isBoldText = pos.isRoot
                                 )
                             }
-
                             // Fretboard canvas offset by nut zone
                             Box(
                                 modifier = Modifier
@@ -634,7 +586,6 @@ fun PlaybackScreen(
                                     geometry = geometry,
                                     modifier = Modifier.fillMaxSize()
                                 )
-
                                 liveScaleOverlay.filter { it.fret > 0 }.forEach { pos ->
                                     val isKeyRoot =
                                         pos.pitchClass == timeline.key.rootPitchClass
@@ -651,7 +602,6 @@ fun PlaybackScreen(
                                         showBorder = isKeyRoot
                                     )
                                 }
-
                                 liveChordToneOverlay.filter { it.fret > 0 }.forEach { pos ->
                                     FretMarker(
                                         position = geometry.markerPosition(
@@ -666,7 +616,6 @@ fun PlaybackScreen(
                                     )
                                 }
                             }
-
                             // Pickup zone
                             Box(
                                 modifier = Modifier
@@ -716,7 +665,6 @@ fun PlaybackScreen(
                 }
             }
         }
-
         // ── CONTROLS AREA ─────────────────────────────────────────────
         Column(
             modifier = Modifier
@@ -766,7 +714,6 @@ fun PlaybackScreen(
                     }
                 }
             }
-
             // Row 2: Overlay controls
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -812,7 +759,6 @@ fun PlaybackScreen(
                     }
                 }
             }
-
             // Row 3: Progression visualizer
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -841,11 +787,9 @@ fun PlaybackScreen(
         }
     }
 }
-
 // ================================================================
 // THEORY GRID VIEW
 // ================================================================
-
 @Composable
 fun TheoryGridView(
     liveScaleOverlay: List<FretboardPosition>,
@@ -857,31 +801,24 @@ fun TheoryGridView(
     val totalFrets = 24
     val totalStrings = 6
     val stringNames = listOf("e", "B", "G", "D", "A", "E")
-
     val scalePcs = liveScaleOverlay.map { it.fret to it.stringIndex }.toSet()
     val chordTonePcs = liveChordToneOverlay.map { it.fret to it.stringIndex }.toSet()
     val chordToneMap = liveChordToneOverlay.associateBy { it.fret to it.stringIndex }
     val scaleMap = liveScaleOverlay.associateBy { it.fret to it.stringIndex }
-
     val singleInlayFrets = setOf(3, 5, 7, 9, 15, 17, 19, 21)
     val doubleInlayFrets = setOf(12, 24)
-
     BoxWithConstraints(modifier = modifier.background(Color(0xFF1E2A4A))) {
         val density = LocalDensity.current
         val totalWidthPx = with(density) { maxWidth.toPx() }
         val totalHeightPx = with(density) { maxHeight.toPx() }
-
         val labelColWidthPx = totalWidthPx * 0.04f
         val labelRowHeightPx = totalHeightPx * 0.15f
         val gridWidthPx = totalWidthPx - labelColWidthPx
         val gridHeightPx = totalHeightPx - labelRowHeightPx
-
         val cellWidthPx = gridWidthPx / totalFrets
         val cellHeightPx = gridHeightPx / totalStrings
-
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(color = Color(0xFF1A1A2E))
-
             for (fret in 1..totalFrets) {
                 val cellLeft = labelColWidthPx + (fret - 1) * cellWidthPx
                 val cellCenterX = cellLeft + cellWidthPx / 2f
@@ -894,7 +831,6 @@ fun TheoryGridView(
                             center = Offset(cellCenterX, labelRowHeightPx + gridHeightPx / 2f)
                         )
                     }
-
                     in doubleInlayFrets -> {
                         val gap = gridHeightPx * 0.22f
                         val centerY = labelRowHeightPx + gridHeightPx / 2f
@@ -911,7 +847,6 @@ fun TheoryGridView(
                     }
                 }
             }
-
             for (s in 0..totalStrings) {
                 val y = labelRowHeightPx + s * cellHeightPx
                 drawLine(
@@ -921,7 +856,6 @@ fun TheoryGridView(
                     strokeWidth = if (s == 0 || s == totalStrings) 2f else 1f
                 )
             }
-
             for (f in 0..totalFrets) {
                 val x = labelColWidthPx + f * cellWidthPx
                 drawLine(
@@ -932,7 +866,6 @@ fun TheoryGridView(
                 )
             }
         }
-
         // Fret number labels
         for (fret in 1..totalFrets) {
             val cellLeft = labelColWidthPx + (fret - 1) * cellWidthPx
@@ -957,7 +890,6 @@ fun TheoryGridView(
                 }
             }
         }
-
         // String name labels
         for (s in 0 until totalStrings) {
             val cellTop = labelRowHeightPx + s * cellHeightPx
@@ -978,7 +910,6 @@ fun TheoryGridView(
                 )
             }
         }
-
         // Scale and chord tone markers
         for (s in 0 until totalStrings) {
             for (fret in 1..totalFrets) {
@@ -988,7 +919,6 @@ fun TheoryGridView(
                 val cellCenterX = cellLeft + cellWidthPx / 2f
                 val cellCenterY = cellTop + cellHeightPx / 2f
                 val dotRadius = minOf(cellWidthPx, cellHeightPx) * 0.32f
-
                 when {
                     key in chordTonePcs -> {
                         val pos = chordToneMap[key]!!
@@ -1020,7 +950,6 @@ fun TheoryGridView(
                             )
                         }
                     }
-
                     key in scalePcs -> {
                         val pos = scaleMap[key]!!
                         val isKeyRoot = pos.pitchClass == keyRootPitchClass
@@ -1060,11 +989,9 @@ fun TheoryGridView(
         }
     }
 }
-
 // ================================================================
 // GUITAR FRETBOARD IMPLEMENTATION (Supporting Components)
 // ================================================================
-
 object GuitarSpec {
     const val SCALE_LENGTH_MM = 647.7f
     const val TOTAL_FRETS = 24
@@ -1078,9 +1005,7 @@ object GuitarSpec {
     fun fretDistanceFromNut(n: Int): Float =
         SCALE_LENGTH_MM * (1f - 1f / 2f.pow(n / 12f))
 }
-
 data class SharedScale(val xScale: Float, val yScale: Float)
-
 fun computeSharedScale(fretboardAreaWidthPx: Float, canvasHeightPx: Float): SharedScale {
     val dist0 = GuitarSpec.fretDistanceFromNut(0)
     val dist12 = GuitarSpec.fretDistanceFromNut(12)
@@ -1088,7 +1013,6 @@ fun computeSharedScale(fretboardAreaWidthPx: Float, canvasHeightPx: Float): Shar
     val yScale = canvasHeightPx / GuitarSpec.END_WIDTH_MM
     return SharedScale(xScale, yScale)
 }
-
 class FretboardGeometry(
     val canvasWidthPx: Float,
     val canvasHeightPx: Float,
@@ -1102,12 +1026,10 @@ class FretboardGeometry(
     private val totalDistanceRef = fretDistances[GuitarSpec.TOTAL_FRETS]
     private val startDist = fretDistances[startFret]
     val usedWidthPx = (fretDistances[endFret] - startDist) * scale.xScale
-
     private fun neckWidthMmAt(fret: Int): Float {
         val t = fretDistances[fret] / totalDistanceRef
         return GuitarSpec.NUT_WIDTH_MM + (GuitarSpec.END_WIDTH_MM - GuitarSpec.NUT_WIDTH_MM) * t
     }
-
     fun fretX(n: Int): Float = (fretDistances[n] - startDist) * scale.xScale
     fun neckWidthPx(n: Int): Float = neckWidthMmAt(n) * scale.yScale
     fun stringSpacingPx(n: Int): Float {
@@ -1116,25 +1038,20 @@ class FretboardGeometry(
                 (GuitarSpec.END_STRING_SPACING_MM - GuitarSpec.NUT_STRING_SPACING_MM) * t
         return spacingMm * scale.yScale
     }
-
     fun stringThicknessPx(stringIndex: Int): Float =
         GuitarSpec.STRING_THICKNESS_MM[stringIndex] * scale.yScale
-
     val topEdgeLeft = canvasHeightPx / 2f - neckWidthPx(startFret) / 2f
     val topEdgeRight = canvasHeightPx / 2f - neckWidthPx(endFret) / 2f
     val bottomEdgeLeft = canvasHeightPx / 2f + neckWidthPx(startFret) / 2f
     val bottomEdgeRight = canvasHeightPx / 2f + neckWidthPx(endFret) / 2f
-
     fun topEdgeAt(x: Float): Float {
         val t = (x / usedWidthPx).coerceIn(0f, 1f)
         return topEdgeLeft + (topEdgeRight - topEdgeLeft) * t
     }
-
     fun bottomEdgeAt(x: Float): Float {
         val t = (x / usedWidthPx).coerceIn(0f, 1f)
         return bottomEdgeLeft + (bottomEdgeRight - bottomEdgeLeft) * t
     }
-
     fun stringYAt(stringIndex: Int, x: Float): Float {
         val t = (x / usedWidthPx).coerceIn(0f, 1f)
         val spacing = stringSpacingPx(startFret) +
@@ -1143,20 +1060,17 @@ class FretboardGeometry(
         val offset = (stringIndex - 2.5f) * spacing
         return center + offset
     }
-
     fun fretCenterX(fret: Int): Float {
         require(fret > startFret && fret <= endFret) {
             "fret $fret is outside this page's range ($startFret..$endFret)"
         }
         return (fretX(fret - 1) + fretX(fret)) / 2f
     }
-
     fun markerPosition(stringIndex: Int, fret: Int): Offset {
         val x = fretCenterX(fret)
         return Offset(x, stringYAt(stringIndex, x))
     }
 }
-
 @Composable
 fun FretboardCanvas(
     geometry: FretboardGeometry,
@@ -1164,7 +1078,6 @@ fun FretboardCanvas(
 ) {
     Canvas(modifier = modifier) {
         val w = geometry.usedWidthPx
-
         val neckPath = Path().apply {
             moveTo(0f, geometry.topEdgeLeft)
             lineTo(w, geometry.topEdgeRight)
@@ -1173,7 +1086,6 @@ fun FretboardCanvas(
             close()
         }
         drawPath(neckPath, color = Color(0xFF5A3A22))
-
         if (w < geometry.canvasWidthPx) {
             drawRect(
                 color = Color(0xFF3A2012),
@@ -1181,7 +1093,6 @@ fun FretboardCanvas(
                 size = Size(geometry.canvasWidthPx - w, geometry.canvasHeightPx)
             )
         }
-
         for (f in geometry.startFret..geometry.endFret) {
             if (f == geometry.startFret) continue
             val cx = geometry.fretCenterX(f)
@@ -1203,7 +1114,6 @@ fun FretboardCanvas(
                 )
             }
         }
-
         for (f in geometry.startFret..geometry.endFret) {
             val x = geometry.fretX(f)
             val top = geometry.topEdgeAt(x)
@@ -1216,7 +1126,6 @@ fun FretboardCanvas(
                 strokeWidth = if (isNut) 14f else 5f
             )
         }
-
         for (s in 0..5) {
             val thickness = geometry.stringThicknessPx(s)
             val yLeft = geometry.stringYAt(s, 0f)
@@ -1232,9 +1141,7 @@ fun FretboardCanvas(
         }
     }
 }
-
 enum class MarkerShape { Circle, RoundedSquare }
-
 @Composable
 fun FretMarker(
     position: Offset,
@@ -1297,15 +1204,12 @@ fun FretMarker(
 data class ScaleTone(val page: Int, val stringIndex: Int, val fret: Int)
 data class ChordTone(val page: Int, val stringIndex: Int, val fret: Int, val color: Color)
 data class OpenTone(val stringIndex: Int, val color: Color)
-
 const val NUT_ZONE_WIDTH_DP = 28
-
 fun Context.findActivity(): ComponentActivity? = when (this) {
     is ComponentActivity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
-
 @Preview(showBackground = true, name = "Setup Screen", apiLevel = 36)
 @Composable
 fun SetupScreenPreview() {
@@ -1334,7 +1238,6 @@ fun SetupScreenPreview() {
         )
     }
 }
-
 @Preview(
     showBackground = true,
     widthDp = 640,
@@ -1357,7 +1260,7 @@ fun PlaybackScreenPreview() {
     FretboardLayoutsTheme {
         PlaybackScreen(
             timeline = mockTimeline,
-            onPlayChord = {},
+            currentChordIndex = 0, // NEW
             onStopAudio = {},
             onBackClick = {},
             liveScaleOverlay = mockTimeline.scaleOverlay,
