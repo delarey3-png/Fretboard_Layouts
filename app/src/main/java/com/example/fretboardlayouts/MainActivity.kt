@@ -1,4 +1,5 @@
 package com.example.fretboardlayouts
+
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -10,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -88,6 +90,7 @@ import com.example.fretboardlayouts.theory.ProgressionOption
 import com.example.fretboardlayouts.theory.buildProgressionOptions
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.PaddingValues
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -127,6 +130,7 @@ class MainActivity : ComponentActivity() {
                         audioStatus = audioStatus.value,
                         onJamClick = { viewModel.startGeneratingTrack() }
                     )
+
                     is AppState.Loading -> LoadingScreen(message = current.message)
                     is AppState.Playback -> PlaybackScreen(
                         timeline = current.timeline,
@@ -147,6 +151,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
 // ================================================================
 // SETUP SCREEN
 // ================================================================
@@ -179,6 +184,22 @@ fun SetupScreen(
     val progressionOptions = remember(currentKey) {
         com.example.fretboardlayouts.theory.buildProgressionOptions(currentKey)
     }
+    // Chord data for Music Dashboard — updates live as key/progression/time sig changes.
+    // NEW made by Claude 17/08/2026
+    val dashboardChords = remember(currentKey, selectedProgression, selectedTimeSignature) {
+        val slots = Progressions.ALL[selectedProgression] ?: Progressions.ALL.values.first()
+        buildJamTimeline(
+            key = currentKey,
+            progressionSlots = slots,
+            scaleType = ScaleType.PENTATONIC,
+            chordOverlayMode = ChordOverlayMode.ALL_CHORD_TONES,
+            tempoBpm = 100,
+            timeSignature = selectedTimeSignature
+        ).events
+            .sortedBy { it.barIndex }
+            .distinctBy { it.barIndex }
+            .map { it.chord.name to it.chord.romanLabel }
+    }
     // made by Gemini 27/06: Auto-select first valid progression if current one becomes invalid
     LaunchedEffect(currentKey) {
         val currentValid =
@@ -188,150 +209,184 @@ fun SetupScreen(
             if (firstValid != null) onProgressionSelected(firstValid.name)
         }
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Setup Your Fretboard", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = "Audio: $audioStatus",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                SetupDropdown(
-                    label = "Key",
-                    selected = selectedKey,
-                    options = NOTE_NAMES.flatMap { listOf("$it Major", "$it Minor") },
-                    onSelected = onKeySelected
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                SetupDropdown(
-                    label = "Genre",
-                    selected = selectedGenre.displayName,
-                    options = Genre.values().map { it.displayName },
-                    onSelected = { name ->
-                        onGenreSelected(Genre.values().find { it.displayName == name }
-                            ?: Genre.ROCK)
-                    }
-                )
-            }
-        }
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                SetupDropdown(
-                    label = "Time Signature",
-                    selected = selectedTimeSignature.display,
-                    options = TimeSignature.values().map { it.display },
-                    onSelected = { display ->
-                        onTimeSignatureSelected(
-                            TimeSignature.values().find { it.display == display }
-                                ?: TimeSignature.FOUR_FOUR
-                        )
-                    }
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                PresetDropdown(
-                    label = "Strum Pattern",
-                    options = buildPresetOptions(
-                        allGuitarPresets, selectedGenre, selectedTimeSignature, customStrumMode
-                    ),
-                    selectedName = selectedGuitarPreset?.name ?: "Default",
-                    onSelected = onGuitarPresetSelected
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "Custom Strum Mode",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Switch(checked = customStrumMode, onCheckedChange = onCustomStrumModeToggled)
-        }
-        // made by Gemini 27/06: Context-aware progression dropdown
-        ProgressionDropdown(
-            label = "Progression",
-            selected = selectedProgression,
-            options = progressionOptions,
-            onSelected = onProgressionSelected
-        )
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                SetupDropdown(
-                    label = "Scale Overlay",
-                    selected = selectedScaleOverlay.name,
-                    options = ScaleType.values().map { it.name },
-                    onSelected = { onScaleOverlaySelected(ScaleType.valueOf(it)) }
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                SetupDropdown(
-                    label = "Chord Display",
-                    selected = selectedChordMode.name,
-                    options = ChordOverlayMode.values().map { it.name },
-                    onSelected = { onChordModeSelected(ChordOverlayMode.valueOf(it)) }
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                "Tempo: $selectedTempo BPM",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            androidx.compose.material3.Slider(
-                value = selectedTempo.toFloat(),
-                onValueChange = { onTempoSelected(it.roundToInt()) },
-                valueRange = 60f..200f,
-                steps = 140
-            )
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(
-            onClick = onJamClick,
+    Column(modifier = Modifier.fillMaxSize()) {
+        // ── Sticky: title + dashboard (never scrolls) ────────────
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D00)),
-            contentPadding = PaddingValues(0.dp) // Removes default button padding so the logo can fill the height nicely
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.lets_jam_logo),
-                contentDescription = "Let's Jam!",
-                modifier = Modifier
-                    .fillMaxHeight()
-                    // ButtonDefaults.shape ensures the image clips perfectly to the button's rounded corners
-                    .clip(ButtonDefaults.shape)
-                    .padding(vertical = 4.dp)
+            Text("Setup Your Fretboard", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                text = "Audio: $audioStatus",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // 📺 Music Dashboard — NEW made by Claude 17/08/2026
+            MusicDashboard(
+                chordNames = dashboardChords.map { it.first },
+                numerals = dashboardChords.map { it.second },
+                activeChordIndex = -1,
+                keyLabel = selectedKey,
+                timeSignature = selectedTimeSignature,
+                tempo = selectedTempo,
+                genre = selectedGenre,
+                modifier = Modifier.fillMaxWidth()
             )
         }
-        Spacer(modifier = Modifier.height(12.dp)) // NEW
-        Button( // NEW
-            onClick = { // NEW
-                context.startActivity(Intent(context, com.example.fretboardlayouts.JamLabActivity::class.java)) // NEW
-            }, // NEW
-            modifier = Modifier.fillMaxWidth().height(56.dp) // NEW Delarey 08/07 changed Let's Jam! Button size
-        ) { // NEW
-            Text("\uD83E\uDDEA Jam Lab", style = MaterialTheme.typography.titleLarge) // NEW Delarey 08/07 button colour change attempt
-        } // NEW
-    }
+        // ── Scrollable body ──────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    SetupDropdown(
+                        label = "Key",
+                        selected = selectedKey,
+                        options = NOTE_NAMES.flatMap { listOf("$it Major", "$it Minor") },
+                        onSelected = onKeySelected
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    SetupDropdown(
+                        label = "Genre",
+                        selected = selectedGenre.displayName,
+                        options = Genre.values().map { it.displayName },
+                        onSelected = { name ->
+                            onGenreSelected(Genre.values().find { it.displayName == name }
+                                ?: Genre.ROCK)
+                        }
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    SetupDropdown(
+                        label = "Time Signature",
+                        selected = selectedTimeSignature.display,
+                        options = TimeSignature.values().map { it.display },
+                        onSelected = { display ->
+                            onTimeSignatureSelected(
+                                TimeSignature.values().find { it.display == display }
+                                    ?: TimeSignature.FOUR_FOUR
+                            )
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    PresetDropdown(
+                        label = "Strum Pattern",
+                        options = buildPresetOptions(
+                            allGuitarPresets, selectedGenre, selectedTimeSignature, customStrumMode
+                        ),
+                        selectedName = selectedGuitarPreset?.name ?: "Default",
+                        onSelected = onGuitarPresetSelected
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Custom Strum Mode",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Switch(checked = customStrumMode, onCheckedChange = onCustomStrumModeToggled)
+            }
+            // made by Gemini 27/06: Context-aware progression dropdown
+            ProgressionDropdown(
+                label = "Progression",
+                selected = selectedProgression,
+                options = progressionOptions,
+                onSelected = onProgressionSelected
+            )
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    SetupDropdown(
+                        label = "Scale Overlay",
+                        selected = selectedScaleOverlay.name,
+                        options = ScaleType.values().map { it.name },
+                        onSelected = { onScaleOverlaySelected(ScaleType.valueOf(it)) }
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    SetupDropdown(
+                        label = "Chord Display",
+                        selected = selectedChordMode.name,
+                        options = ChordOverlayMode.values().map { it.name },
+                        onSelected = { onChordModeSelected(ChordOverlayMode.valueOf(it)) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Tempo: $selectedTempo BPM",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                androidx.compose.material3.Slider(
+                    value = selectedTempo.toFloat(),
+                    onValueChange = { onTempoSelected(it.roundToInt()) },
+                    valueRange = 60f..200f,
+                    steps = 140
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = onJamClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D00)),
+                contentPadding = PaddingValues(0.dp) // Removes default button padding so the logo can fill the height nicely
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.lets_jam_logo),
+                    contentDescription = "Let's Jam!",
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        // ButtonDefaults.shape ensures the image clips perfectly to the button's rounded corners
+                        .clip(ButtonDefaults.shape)
+                        .padding(vertical = 4.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp)) // NEW
+            Button( // NEW
+                onClick = { // NEW
+                    context.startActivity(
+                        Intent(
+                            context,
+                            com.example.fretboardlayouts.JamLabActivity::class.java
+                        )
+                    ) // NEW
+                }, // NEW
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp) // NEW Delarey 08/07 changed Let's Jam! Button size
+            ) { // NEW
+                Text(
+                    "\uD83E\uDDEA Jam Lab",
+                    style = MaterialTheme.typography.titleLarge
+                ) // NEW Delarey 08/07 button colour change attempt
+            } // NEW
+        } // end scrollable Column
+    } // end outer Column
 }
+
 @Composable
 fun ProgressionDropdown(
     label: String,
@@ -340,7 +395,9 @@ fun ProgressionDropdown(
     onSelected: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 8.dp)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
@@ -375,6 +432,7 @@ fun ProgressionDropdown(
         HorizontalDivider()
     }
 }
+
 @Composable
 fun SetupDropdown(
     label: String,
@@ -383,7 +441,9 @@ fun SetupDropdown(
     onSelected: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 8.dp)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
@@ -412,6 +472,7 @@ fun SetupDropdown(
         HorizontalDivider()
     }
 }
+
 @Composable
 fun PresetDropdown(
     label: String,
@@ -420,7 +481,9 @@ fun PresetDropdown(
     onSelected: (StrumPreset) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 8.dp)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
@@ -450,10 +513,13 @@ fun PresetDropdown(
         HorizontalDivider()
     }
 }
+
 @Composable
 fun LoadingScreen(message: String) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -462,6 +528,7 @@ fun LoadingScreen(message: String) {
         Text(message, textAlign = TextAlign.Center)
     }
 }
+
 // ================================================================
 // PLAYBACK SCREEN
 // ================================================================
@@ -504,7 +571,8 @@ fun PlaybackScreen(
     // MODIFIED — currentEvent now comes from the ViewModel's chord index,
     // which is updated by the 8ms loop in MainViewModel.startPlaybackLoop().
     // withFrameMillis and elapsedTime are gone; audio continues when screen is off.
-    val currentEvent = timeline.events.getOrNull(currentChordIndex) ?: timeline.events.first() // NEW
+    val currentEvent =
+        timeline.events.getOrNull(currentChordIndex) ?: timeline.events.first() // NEW
     val chordColor = when (currentEvent.chord.degree) {
         1 -> Color(0xFF4CAF50)
         4 -> Color(0xFFFF9800)
@@ -787,6 +855,7 @@ fun PlaybackScreen(
         }
     }
 }
+
 // ================================================================
 // THEORY GRID VIEW
 // ================================================================
@@ -831,6 +900,7 @@ fun TheoryGridView(
                             center = Offset(cellCenterX, labelRowHeightPx + gridHeightPx / 2f)
                         )
                     }
+
                     in doubleInlayFrets -> {
                         val gap = gridHeightPx * 0.22f
                         val centerY = labelRowHeightPx + gridHeightPx / 2f
@@ -950,6 +1020,7 @@ fun TheoryGridView(
                             )
                         }
                     }
+
                     key in scalePcs -> {
                         val pos = scaleMap[key]!!
                         val isKeyRoot = pos.pitchClass == keyRootPitchClass
@@ -989,6 +1060,7 @@ fun TheoryGridView(
         }
     }
 }
+
 // ================================================================
 // GUITAR FRETBOARD IMPLEMENTATION (Supporting Components)
 // ================================================================
@@ -1005,7 +1077,9 @@ object GuitarSpec {
     fun fretDistanceFromNut(n: Int): Float =
         SCALE_LENGTH_MM * (1f - 1f / 2f.pow(n / 12f))
 }
+
 data class SharedScale(val xScale: Float, val yScale: Float)
+
 fun computeSharedScale(fretboardAreaWidthPx: Float, canvasHeightPx: Float): SharedScale {
     val dist0 = GuitarSpec.fretDistanceFromNut(0)
     val dist12 = GuitarSpec.fretDistanceFromNut(12)
@@ -1013,6 +1087,7 @@ fun computeSharedScale(fretboardAreaWidthPx: Float, canvasHeightPx: Float): Shar
     val yScale = canvasHeightPx / GuitarSpec.END_WIDTH_MM
     return SharedScale(xScale, yScale)
 }
+
 class FretboardGeometry(
     val canvasWidthPx: Float,
     val canvasHeightPx: Float,
@@ -1030,6 +1105,7 @@ class FretboardGeometry(
         val t = fretDistances[fret] / totalDistanceRef
         return GuitarSpec.NUT_WIDTH_MM + (GuitarSpec.END_WIDTH_MM - GuitarSpec.NUT_WIDTH_MM) * t
     }
+
     fun fretX(n: Int): Float = (fretDistances[n] - startDist) * scale.xScale
     fun neckWidthPx(n: Int): Float = neckWidthMmAt(n) * scale.yScale
     fun stringSpacingPx(n: Int): Float {
@@ -1038,8 +1114,10 @@ class FretboardGeometry(
                 (GuitarSpec.END_STRING_SPACING_MM - GuitarSpec.NUT_STRING_SPACING_MM) * t
         return spacingMm * scale.yScale
     }
+
     fun stringThicknessPx(stringIndex: Int): Float =
         GuitarSpec.STRING_THICKNESS_MM[stringIndex] * scale.yScale
+
     val topEdgeLeft = canvasHeightPx / 2f - neckWidthPx(startFret) / 2f
     val topEdgeRight = canvasHeightPx / 2f - neckWidthPx(endFret) / 2f
     val bottomEdgeLeft = canvasHeightPx / 2f + neckWidthPx(startFret) / 2f
@@ -1048,10 +1126,12 @@ class FretboardGeometry(
         val t = (x / usedWidthPx).coerceIn(0f, 1f)
         return topEdgeLeft + (topEdgeRight - topEdgeLeft) * t
     }
+
     fun bottomEdgeAt(x: Float): Float {
         val t = (x / usedWidthPx).coerceIn(0f, 1f)
         return bottomEdgeLeft + (bottomEdgeRight - bottomEdgeLeft) * t
     }
+
     fun stringYAt(stringIndex: Int, x: Float): Float {
         val t = (x / usedWidthPx).coerceIn(0f, 1f)
         val spacing = stringSpacingPx(startFret) +
@@ -1060,17 +1140,20 @@ class FretboardGeometry(
         val offset = (stringIndex - 2.5f) * spacing
         return center + offset
     }
+
     fun fretCenterX(fret: Int): Float {
         require(fret > startFret && fret <= endFret) {
             "fret $fret is outside this page's range ($startFret..$endFret)"
         }
         return (fretX(fret - 1) + fretX(fret)) / 2f
     }
+
     fun markerPosition(stringIndex: Int, fret: Int): Offset {
         val x = fretCenterX(fret)
         return Offset(x, stringYAt(stringIndex, x))
     }
 }
+
 @Composable
 fun FretboardCanvas(
     geometry: FretboardGeometry,
@@ -1141,7 +1224,9 @@ fun FretboardCanvas(
         }
     }
 }
+
 enum class MarkerShape { Circle, RoundedSquare }
+
 @Composable
 fun FretMarker(
     position: Offset,
@@ -1201,15 +1286,18 @@ fun FretMarker(
         }
     }
 }
+
 data class ScaleTone(val page: Int, val stringIndex: Int, val fret: Int)
 data class ChordTone(val page: Int, val stringIndex: Int, val fret: Int, val color: Color)
 data class OpenTone(val stringIndex: Int, val color: Color)
+
 const val NUT_ZONE_WIDTH_DP = 28
 fun Context.findActivity(): ComponentActivity? = when (this) {
     is ComponentActivity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
+
 @Preview(showBackground = true, name = "Setup Screen", apiLevel = 36)
 @Composable
 fun SetupScreenPreview() {
@@ -1238,6 +1326,7 @@ fun SetupScreenPreview() {
         )
     }
 }
+
 @Preview(
     showBackground = true,
     widthDp = 640,

@@ -18,23 +18,23 @@ Let's Jam! must be the musician's swiss army knife without advertising to be one
 **What can this app do?**
 
 1. Create a song loop within 10 seconds that:
-   - Plays back at any tempo, genre, key and progression chosen (Music Setup — What are we playing?)
-   - Plays the genre, sub-genre, instruments selected (Sound Setup — What are we hearing?)
-   - Displays various musical scales and concepts in real-time while the band keeps playing (Lead Setup — What are we seeing/learning?)
-   - Shows a fretboard with beginner to advanced theory with playback
-   - Lets you customise what you see during playback using two fully independent overlays
+    - Plays back at any tempo, genre, key and progression chosen (Music Setup — What are we playing?)
+    - Plays the genre, sub-genre, instruments selected (Sound Setup — What are we hearing?)
+    - Displays various musical scales and concepts in real-time while the band keeps playing (Lead Setup — What are we seeing/learning?)
+    - Shows a fretboard with beginner to advanced theory with playback
+    - Lets you customise what you see during playback using two fully independent overlays
 
 2. Spend more time setting up an advanced loop with custom progression, alternate tunings, modes, various scale and chord tone overlays to practice to:
-   - Under the hood: alternate tunings, power chords, triads, extended chords, slash chords, modes, humanisation, etc.
-   - Select and edit what you want to see/practice live during playback
-   - Save the loop to favourites for easy playback later
-   - Share the loop with others
+    - Under the hood: alternate tunings, power chords, triads, extended chords, slash chords, modes, humanisation, etc.
+    - Select and edit what you want to see/practice live during playback
+    - Save the loop to favourites for easy playback later
+    - Share the loop with others
 
 3. Song Builder lets you use created loops as musical building blocks to create full songs:
-   - Building blocks are fully editable using the familiar interface from LoopBuilder
-   - Musical blocks have an option to add lyrics (share unfinished songs to band members!)
-   - String together diverse music blocks to create full songs
-   - Full songs can be jammed to, saved, or shared in PDF format or as .ljam song files
+    - Building blocks are fully editable using the familiar interface from LoopBuilder
+    - Musical blocks have an option to add lyrics (share unfinished songs to band members!)
+    - String together diverse music blocks to create full songs
+    - Full songs can be jammed to, saved, or shared in PDF format or as .ljam song files
 
 **What it is:**
 - A Guitar Practice App
@@ -156,28 +156,29 @@ Purpose: "Turn my loops into a complete song."
 
 ---
 
-## The Music Dashboard 📺 — The Missing Link
+## The Music Dashboard 📺
 
-**The Music Dashboard is the connective tissue of the entire app.** It is a shared composable that appears on every screen in an identical position, displaying the current musical state. It is the single source of truth made visible.
+**The Music Dashboard is the connective tissue of the entire app.** A shared `@Composable` that sits at the top of every screen in a sticky freeze-pane position, displaying the current musical state. It is the single source of truth made visible.
 
 ```
-[ C  —  G  —  Am  —  F ]    ← actual chord names (current chord bolds as it plays)
+[ C  —  G  —  Am  —  F ]    ← chord names (active chord bolds during playback)
 [ I  —  V  —  vi  —  IV]    ← Roman numerals
   Key: C Major  |  4/4  |  100 BPM  |  Genre: Rock
 ```
 
-**Rules:**
-- Identical position and layout on LoopBuilder, Jam Lab, and Theory Engine Room
-- Read-only on Let's Jam! Screen (consumed, not edited)
-- Similar on Song Builder (shows current block's musical content)
-- Any change made anywhere (Theory Engine Room, Jam Lab, LoopBuilder) immediately reflects here
-- When 7th chord / extended chord mode is on, a ✏️ pencil icon appears next to each chord for per-chord editing
-- Current chord highlights bold as the progression plays
-- Must be driven by shared state — NOT local state per screen
+**Status: ✅ Implemented (17/08/2026)**
+- `MusicDashboard.kt` — standalone stateless composable
+- Live on Jam Lab (sticky freeze-pane layout) — updates as selections change, active chord highlights during playback
+- Live on LoopBuilder SetupScreen (sticky freeze-pane layout) — updates as selections change, `activeChordIndex = -1` (playback happens on Jam Screen)
+- `dashboardChords` computed via `remember(key, progression, chordStyle, timeSignature)` calling `buildJamTimeline` — gives chord names + Roman numerals pre-playback without a full timeline
+- Freeze-pane layout: outer non-scrolling `Column` holds header + dashboard; inner `Column` with `verticalScroll` holds everything else
 
-**Architecture implication:** Jam Lab currently uses fully local state (correct for sandbox phase). When the Music Dashboard is implemented, a `SessionViewModel` or shared `AppState` will need to be introduced so all screens read from the same source. This is a planned refactor — do not implement local state workarounds that will need to be undone.
+**Architecture decision (17/08/2026):** No `SessionViewModel` or shared `AppState` needed. The user can only ever be on one screen at a time. Each screen feeds its own local state into `MusicDashboard` as plain parameters. The composable is stateless — just displays what it's given. This is simpler and correct.
 
-**On Song Builder:** The dashboard shows the content of the currently selected block, contextualised to the active block being edited.
+**Still pending:**
+- Read-only version on Let's Jam! Screen (landscape, more involved layout — deferred)
+- ✏️ pencil per chord when extended chord mode is on
+- Song Builder version (shows current block's musical content)
 
 ---
 
@@ -241,8 +242,6 @@ StyleEngine           ← reads all of the above
 - `L` maps to ABC notation `L:` field for future export
 - `ticksPerBeat` was always in the engine — Note Length is the missing UI handle that exposes it
 
-**Note Length is the vital link that ties the timing chain to the UI.** It was always in the engine from the beginning — the selector makes it user-facing for the first time.
-
 **Pattern control rules:**
 - **Genre mode** → Genre owns pattern defaults. Note Length and Time Signature are informational only, do not gate pattern selection
 - **Custom mode** → Note Length + Time Signature together determine the pattern editor grid resolution. Only compatible patterns shown.
@@ -286,12 +285,12 @@ No hard mode switch. Natural depth as the user grows.
 
 **Overlay 1** — Scale / mode reference layer (left column under fretboard)
 - Two mutually exclusive modes:
-  - **Fixed Overlay** — one scale/mode displayed permanently
-    - Options: Root Notes only, Pentatonic (default), Diatonic, Modes (Ionian/Lydian/Mixolydian/Dorian/Phrygian/Aeolian/Locrian)
-  - **Pattern Overlay** — cycles through shapes on a timer
-    - Options: Pentatonic shapes 1–5, Diatonic shapes, 3NPS shapes, Berkeley positions
-    - Cycle: Off / On every X measures
-    - Custom: user selects which specific shapes to include
+    - **Fixed Overlay** — one scale/mode displayed permanently
+        - Options: Root Notes only, Pentatonic (default), Diatonic, Modes (Ionian/Lydian/Mixolydian/Dorian/Phrygian/Aeolian/Locrian)
+    - **Pattern Overlay** — cycles through shapes on a timer
+        - Options: Pentatonic shapes 1–5, Diatonic shapes, 3NPS shapes, Berkeley positions
+        - Cycle: Off / On every X measures
+        - Custom: user selects which specific shapes to include
 - Default: Fixed Overlay, Pentatonic scale
 
 **Overlay 2** — Chord tone / arpeggio layer (right column under fretboard)
@@ -392,6 +391,11 @@ Jam Lab → "Take to Let's Jam!"
 - Skip intentional — not every experiment needs saving
 - Data flows one direction: Jam Lab creates, Let's Jam! consumes
 
+**Data model — what a saved Loop contains:**
+Key, modality, progression, tempo, time signature, genre, genre chord style, instrument roles, selected patches per channel, channel volumes, humanisation level, note length, strum preset name, picking preset name.
+
+**Storage:** Room database. Gives the most flexibility — Song Builder will reference saved loops by ID. Each saved loop is a `LoopEntity` row. Saves are identified by name + timestamp.
+
 ---
 
 ## Help System Architecture
@@ -449,7 +453,7 @@ Total: 72 bars (3:36)
 
 ## Key Learnings & Principles
 
-**Cohesion must be designed in at authoring time.** The Brain architecture (Bass Brain + Drum Brain selecting from unrelated datasets) was fully built and reverted because no post-hoc coordination can substitute for patterns designed to agree. If mined MIDI data is used again, bass and drums must be mined as co-occurring pairs from the same source. See "Data Pipeline & Brain Architecture" below.
+**Cohesion must be designed in at authoring time.** The Brain architecture (Bass Brain + Drum Brain selecting from unrelated datasets) was fully built and reverted because no post-hoc coordination can substitute for patterns designed to agree. If mined MIDI data is used again, bass and drums must be mined as co-occurring pairs from the same source.
 
 **Deterministic, hand-composed, genre-keyed generators** outperform probability-based preset pickers for ensemble coherence. The current `generateDrums()`/`generateBass()` approach is the right architecture.
 
@@ -459,7 +463,7 @@ Total: 72 bars (3:36)
 
 **Strum sustain:** `0.65f` sustain multiplier / `50ms` minimum in `addStrum()` in `PatternRenderer.kt` is the confirmed good value. Previous 0.92f/80ms caused note bleed at slow tempos.
 
-**Strum ring time:** `renderStrum` in `PatternRenderer.kt` calculates `slotDurationMs` as the gap to the next hit rather than a fixed grid slot size. Isolated downstrums ring for the full available space; tight down-up pairs stay short. Previous fixed-slot calculation caused all strums to sound choked/compressed regardless of musical space.
+**Strum ring time:** `renderStrum` in `PatternRenderer.kt` calculates `slotDurationMs` as the gap to the next hit rather than a fixed grid slot size. Isolated downstrums ring for the full available space; tight down-up pairs stay short.
 
 **Note duration formula:** `slotDurationMs = durationMs / (beatsPerBar × ticksPerBeat)` — replaces old hardcoded 800ms.
 
@@ -480,13 +484,17 @@ Total: 72 bars (3:36)
 ```
 Genre-specific mixer defaults (e.g. Guitar 115% for Funk/Disco/Ska, 90% for Jazz) are deferred — Delarey is still listening across genres and will provide final values. Structure agreed: `genreMixerDefaults: Map<Genre, Map<Int, Float>>` initialising `channelVolumeByGenre` instead of flat 1.0f.
 
-**Sustained note cut-off:** When an instrument is turned OFF mid-playback, pending note-offs for that channel must be fired immediately. The fix is to check `pendingNoteOffs` each loop tick and fire any entry on a now-inactive channel. Without this, sustained pads (strings, ensemble, organ) ring out for their full scheduled duration.
+**Sustained note cut-off:** When an instrument is turned OFF mid-playback, pending note-offs for that channel must be fired immediately. The fix is to check `pendingNoteOffs` each loop tick and fire any entry on a now-inactive channel.
 
 **Screen-off audio:** Use `System.currentTimeMillis() + delay(8L)` in `LaunchedEffect`, not `withFrameMillis`. The display-tied frame callback stops when the screen turns off.
 
-**Channel map sync:** The channel numbers in `INSTRUMENT_DEFS` (JamLabActivity.kt), `channelVolumeScale` (StyleEngine.kt), and generator functions must all agree. A channel shift in one file (e.g. Strings 3→4) is a pair change — both files must be deployed atomically before any build test.
+**Channel map sync:** The channel numbers in `INSTRUMENT_DEFS` (JamLabActivity.kt), `channelVolumeScale` (StyleEngine.kt), and generator functions must all agree. A channel shift in one file is a pair change — both files must be deployed atomically before any build test.
 
 **Volume mixer architecture:** `channelVolumeScale` in StyleEngine is the "factory" per-genre balance. The `VolumeMixerPopup` sliders are an additional user multiplier applied as a second pass in `backingTrackEvents`. Adding `channelVolume` to the `remember` keys means slider moves recompute event velocities without restarting the playback loop.
+
+**Music Dashboard architecture:** No `SessionViewModel` or shared `AppState` needed. The user can only ever be on one screen at a time, so there is no cross-screen sync problem. Each screen feeds its own local state into `MusicDashboard` as plain parameters. The composable is completely stateless.
+
+**Freeze-pane layout pattern:** Sticky header + dashboard achieved by wrapping the screen in an outer non-scrolling `Column`, with a sticky header section at top and an inner `Column` with `verticalScroll` below. Used in both JamLabActivity and MainActivity (SetupScreen).
 
 ---
 
@@ -494,9 +502,9 @@ Genre-specific mixer defaults (e.g. Guitar 115% for Funk/Disco/Ska, 90% for Jazz
 
 > ℹ️ **Status as of 31 July 2026:** Bass Brain and Drum Brain were fully built, wired, tested, found to have an ensemble cohesion problem, reverted, and then fully deleted. The `brain/` package (11 files) and `theory/DrumPreset_clean.kt` are both gone. `StyleEngine.kt` is back to the original `generateDrums()` / `generateBass()` — deterministic, genre-keyed, hand-composed patterns. Recoverable from git history (commit `c26a60e`) if ever needed.
 
-**Why it was reverted:** Bass Brain and Drum Brain selected patterns completely independently from two unrelated real-world datasets. No bass line and drum groove in the system ever came from the same song or session. Density filtering and kick-lock were post-hoc attempts to fake cohesion that wasn't in the data.
+**Why it was reverted:** Bass Brain and Drum Brain selected patterns completely independently from two unrelated real-world datasets. No bass line and drum groove in the system ever came from the same song or session.
 
-**The lesson:** Cohesion has to be designed in, by someone who understands the music, at pattern-authoring time. `ako/backing-tracks` (Go, solo-built, similar scope) uses fully deterministic hand-composed patterns — e.g. `root_fifth` bass and `rockBeat` drums land on identical tick positions because both were written by someone who knows that's the backbone of a rock beat.
+**The lesson:** Cohesion has to be designed in, by someone who understands the music, at pattern-authoring time. `ako/backing-tracks` (Go, solo-built, similar scope) uses fully deterministic hand-composed patterns.
 
 **If mined real data is ever used again:** mine bass+drums as co-occurring pairs from the same song — not bolted on afterward via filters or locks.
 
@@ -512,28 +520,28 @@ Genre-specific mixer defaults (e.g. Guitar 115% for Funk/Disco/Ska, 90% for Jazz
 - **`Humanisation.kt`** — `HumanisationLevel` enum (OFF/LIGHT/MEDIUM/HEAVY), `HumanisationProfile`, `humanisationProfile()`, `humaniseVelocity()`, `instrumentHumanisationMultiplier()`. Per-instrument independent velocity variation with accent protection threshold >= 95. `GrooveType` (STRAIGHT/LAID_BACK/PUSHED), `grooveOffsetMs()`, `humaniseTiming()`, `humaniseDuration()`. Per-instrument personality multipliers (Bass=0.7x tightest).
 - **`GuitarPresets.kt`** — 23 named strum presets: Rock (Standard, Driving, Ballad, Down-Up, 16th), Country (Boom-Chicka, Gallop, Slow, Two-Step), Blues (Shuffle, Slow, Blues Rock, Delta), Funk (Scratch, Heavy, Groove), Jazz (Freddie Green, Comp, Ballad, Bossa Comp), plus Ska Skank, Reggae Chop, Disco Strum (added 05/08/2026). `allGuitarPresets` registry.
 - **`PresetSelection.kt`** — `buildPresetOptions()`, `buildProgressionOptions()`, `ProgressionOption`, `PresetOption`
+- **`GenreChordStyle.kt`** — `ChordFamily` enum, `GenreChordRule` sealed interface (`FunctionAwareRule`, `BlanketRule`, `AsWrittenRule`), `GenreChordStyles` registry keyed by genre, `applyGenreChordStyle()`. Added 17/08/2026.
 - **`CagedSystem.kt`** — CAGED shape logic
 - **`FretboardOverlay.kt`** — Scale and chord tone position calculation
-- ~~`DrumPreset_clean.kt`~~ — **deleted 09/08/2026.** Was 193 drum presets. Was causing exhaustive-when errors on every Genre enum addition.
-- ~~`DrumPreset.kt`~~ — **deleted 31/07.** Was 193 drum presets extracted from Groove MIDI Dataset.
+- ~~`DrumPreset_clean.kt`~~ — **deleted 09/08/2026.**
+- ~~`DrumPreset.kt`~~ — **deleted 31/07.**
 
 ### Audio Engine
 - **`StyleEngine.kt`** — `generateAccompaniment()` with `humanisationLevel` and `instrumentRoles`. Full 12-channel GM group support (added 09/08/2026). Generators: `generateDrums()`, `generateBass()`, `generateGuitar()`, `generateGuitarPicking()`, `generatePiano()`, `generateOrgan()`, `generateStrings()`, `generateEnsemble()`, `generateBrass()`, `generateReed()`, `generatePipe()`, `generateSynth()`, `generateEthnic()`. `channelVolumeScale` covers all 12 channels. Pitch helpers: `findBassPitch()`, `findStringsPitch()`, `findPianoChordNotes()`, `findMidRangePitch()`, `findBrassChordNotes()`. Genre groove mapping: Jazz/Blues=LAID_BACK, Country=PUSHED, Rock/Funk/Disco/Ska=STRAIGHT, Reggae=LAID_BACK. Strum sustain at 0.65f/50ms (PatternRenderer.kt addStrum). Blues drums: open HH on triplet upbeats + ghost snare. Jazz drums: sparse kick on beat 1.
-- **`PatternRenderer.kt`** — `renderVoice()`, `renderPitchSequence()`, `renderStrum()`, `addStrum()`. Strum spread velocity-linked (hard=8ms, soft=33ms per string). Partial upstroke (top 4 strings only on `u` direction). `renderStrum` calculates `slotDurationMs` as gap to next hit — strums ring naturally in open space, stay tight in fast patterns. Note duration: `slotDurationMs = durationMs / (beatsPerBar × ticksPerBeat)`, rings 92% of slot with 80ms minimum.
+- **`PatternRenderer.kt`** — `renderVoice()`, `renderPitchSequence()`, `renderStrum()`, `addStrum()`. Strum spread velocity-linked (hard=8ms, soft=33ms per string). Partial upstroke (top 4 strings only on `u` direction). `renderStrum` calculates `slotDurationMs` as gap to next hit — strums ring naturally in open space, stay tight in fast patterns.
 - **`TimelineBuilder.kt`** — `buildJamTimeline()`, `JamTimeline`, progression resolution to timed events
-- **`JamLabAudioEngine.kt`** — Standalone MIDI engine for Jam Lab, independent from MainViewModel. Wake lock in JamLabActivity keeps audio running with screen off. `getRawPresets()` returns pipe-delimited SF2 preset string for dynamic patch discovery. `loadGenrePatches(genre)` fires `changePatchOnChannel` for all applicable channels on genre switch (added 09/08/2026); Piano (ch2) deliberately excluded from genre override.
-engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName for LoopBuilder status display.
-- **`BackingTrackGenerator.kt`** — `MidiNoteEvent(timeMs, channel, pitch, velocity, durationMs)`. Channel convention matches full 12-channel map (see Channel Map section). `generateLoopEvents()` deleted 16/08/2026 as part of LoopBuilder playback migration. MidiNoteEvent data class is the only survivor — still the shared event type across the pipeline.
-- **`GenreInstruments.kt`** — `GenreInstrumentation` data class with defaults for all 12 channels (guitar, bass, drumKit, organ, strings, ensemble, brass, reed, pipe, synth, ethnic). `-1` = not applicable for that genre. `forGenre()` covers all 8 genres. Wired to `JamLabAudioEngine.loadGenrePatches()` — patches auto-load on genre switch.
+- **`JamLabAudioEngine.kt`** — Standalone MIDI engine for Jam Lab and LoopBuilder. `getRawPresets()` returns pipe-delimited SF2 preset string for dynamic patch discovery. `loadGenrePatches(genre)` fires `changePatchOnChannel` for all applicable channels on genre switch; Piano (ch2) deliberately excluded from genre override. `engineName` getter exposes engine name for status display.
+- **`BackingTrackGenerator.kt`** — `MidiNoteEvent(timeMs, channel, pitch, velocity, durationMs)` only. `generateLoopEvents()` deleted 16/08/2026. `MidiNoteEvent` is the shared event type across the pipeline.
+- **`GenreInstruments.kt`** — `GenreInstrumentation` data class with defaults for all 12 channels. `-1` = not applicable for that genre. `forGenre()` covers all 8 genres. Wired to `JamLabAudioEngine.loadGenrePatches()`.
 - **`FluidSynthEngine.kt`** — JNI bridge to FluidSynth native library. `nativeGetPresets()` returns all SF2 presets as pipe-delimited string. `nativeBankAndProgramChange()` skips bank_select on channel 9 (prevents drum/bass bleed).
 
 > **Brain Package — no longer exists.** Was `com.example.fretboardlayouts.brain/` (11 files). Deleted 31/07. Recoverable from git history (`c26a60e`).
 
 ### UI / Screens
-- **`MainActivity.kt`** — LoopBuilder setup screen + Let's Jam! playback screen. `ProgressionDropdown` with modality grey-out. `LaunchedEffect` auto-selects first valid progression on key modality change. Jam Lab launch button. Fretboard geometry, overlays, marker rendering.
-- **`JamLabActivity.kt`** — Standalone sound sandbox. Full 12-channel GM instrument matrix (09/08/2026): `INSTRUMENT_DEFS` (12 rows), `genreInstrumentVisibility` (genre → visible instrument keys), `SF2_ONLY_INSTRUMENTS` (Synth, Ensemble — show only if SF2 has patches). `parsePresetsFromSF2()` filters by GM family ranges; excludes banks 120, 127, 128. `INSTRUMENT_PROGRAMS` hardcoded fallback for all 12 groups. `VolumeMixerPopup` — per-genre channel mix sliders (0–150%), persists across genre switches, stored in `channelVolumeByGenre`. `InstrumentRoleMatrix` genre-aware + SF2-aware row filtering. `PlaybackLoopJamLabHandler` fires immediate note-offs for channels that go inactive. `PatchOption(name, bank, program)` data class. Badge display: `000:027` format. Screen-off audio: `System.currentTimeMillis() + delay(8L)`. Wake lock (4h max).
-- **`MainViewModel.kt` — App state machine (AppState.Setup / Loading / Playback), overlay state, live scale/chord tone overlays. Now uses JamLabAudioEngine (not MidiPlayer). startPlaybackLoop() runs an 8ms delay() coroutine on Dispatchers.Default — screen-off audio works. tickSequencer() (was playChord()) is now private, driven by the loop only.
-`PlaybackScreen` no longer drives timing — withFrameMillis loop removed. Chord display reads viewModel.currentChordIndex directly.
+- **`MusicDashboard.kt`** — Shared stateless `@Composable`. Displays chord names row, Roman numerals row, info bar (key | time sig | tempo | genre). `activeChordIndex` drives highlight during playback (-1 = not playing). Used by both JamLabActivity and MainActivity. Added 17/08/2026.
+- **`MainActivity.kt`** — LoopBuilder setup screen + Let's Jam! playback screen. Freeze-pane layout on SetupScreen (sticky header + dashboard + scrollable body). `dashboardChords` computed state updates live from key/progression/timeSignature. `ProgressionDropdown` with modality grey-out. Fretboard geometry, overlays, marker rendering.
+- **`JamLabActivity.kt`** — Standalone sound sandbox. Freeze-pane layout (sticky header + dashboard + scrollable body). `dashboardChords` computed from key + progression + genre chord style + time signature — updates live as selections change, active chord highlights during playback. Full 12-channel GM instrument matrix: `INSTRUMENT_DEFS` (12 rows), `genreInstrumentVisibility`, `SF2_ONLY_INSTRUMENTS`. `parsePresetsFromSF2()` filters by GM family ranges; excludes banks 120, 127, 128. `INSTRUMENT_PROGRAMS` hardcoded fallback. `VolumeMixerPopup` — per-genre channel mix sliders (0–150%), persists across genre switches. `InstrumentRoleMatrix` genre-aware + SF2-aware row filtering. `PlaybackLoopJamLabHandler` fires immediate note-offs for channels that go inactive. Screen-off audio: `System.currentTimeMillis() + delay(8L)`. Wake lock (4h max).
+- **`MainViewModel.kt`** — App state machine (AppState.Setup / Loading / Playback), overlay state, live scale/chord tone overlays. Uses `JamLabAudioEngine`. `startPlaybackLoop()` runs an 8ms delay() coroutine on `Dispatchers.Default` — screen-off audio works. `tickSequencer()` (was `playChord()`) is private, driven by the loop only. `withFrameMillis` removed from `PlaybackScreen`. Chord display reads `viewModel.currentChordIndex` directly.
 
 ---
 
@@ -542,8 +550,8 @@ engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName fo
 - `MAJOR` and `MINOR` progression categories established
 - `rootOffset` in `ChordSlot` is the hook for borrowed chords and modal interchange
 - Future modes:
-  - **Major family:** Ionian (default), Lydian (+#4), Mixolydian (+b7)
-  - **Minor family:** Aeolian/Natural Minor (default), Dorian, Phrygian, Locrian
+    - **Major family:** Ionian (default), Lydian (+#4), Mixolydian (+b7)
+    - **Minor family:** Aeolian/Natural Minor (default), Dorian, Phrygian, Locrian
 - Mode selection defaults key to Major or Minor family with warning popup on key change
 - Foundation for borrowed chords and modal interchange already in `resolveProgression()`
 
@@ -551,52 +559,30 @@ engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName fo
 
 ## Pending / Deferred
 
-### Brain Package — CLOSED
-- [x] Built, wired, tested (25–31/07)
-- [x] Reverted, deleted (31/07) — ensemble cohesion problem
-- [ ] **(Future, not scoped)** If more pattern variety is wanted, extend the deterministic preset system with more named hand-composed styles rather than mining more real data
+### Immediate Next — Jam Lab Save System
+**This is the next feature to build.**
+- [ ] Room database setup (`LoopEntity`, `LoopDao`, `AppDatabase`)
+- [ ] Context-aware Save button (`💾 Save Loop` / `💾 Save Band Setup` / etc.)
+- [ ] `▼` tinkerer's door (Save As, Save Copy, Export)
+- [ ] Save prompt on "Take to Let's Jam!" navigation
+- [ ] Load saved loops back into Jam Lab state
+- [ ] Delete / rename saved loops
 
-### Jam Lab (immediate next steps)
-- [x] **`JamLabAudioEngine.kt` wiring** — `loadGenrePatches(genre)` implemented, fires on every genre switch
-- [x] **Ear-tune channel volumes** — `channelVolumeScale` confirmed (see Key Learnings). Genre-specific mixer defaults still deferred (Delarey finalising values)
-- [ ] **Genre-specific mixer defaults** — `genreMixerDefaults: Map<Genre, Map<Int, Float>>` initialising `channelVolumeByGenre`. Guitar confirmed: Funk/Disco/Ska ~115%, Jazz ~90%. Other channels TBD after listening session.
-- [ ] **`generateLoopEvents()` deletion** — confirmed legacy in `BackingTrackGenerator.kt`, safe to delete (will happen as part of LoopBuilder playback migration)
+### Jam Lab — Other Pending
+- [ ] Genre-specific mixer defaults — `genreMixerDefaults: Map<Genre, Map<Int, Float>>` initialising `channelVolumeByGenre`. Guitar confirmed: Funk/Disco/Ska ~115%, Jazz ~90%. Other channels TBD after listening session.
 - [ ] Progression display refinements: max 4 chords at a time, repeated chords as `I ×4`
-- [ ] Pattern filtering — Genre mode vs Custom mode gating (future task)
-- [ ] Save system implementation (context-aware Save button)
-- [ ] Save prompt when navigating to Let's Jam!
-- [x] Strum pattern display hides when Pick/Arp role is selected for guitar
-- [x] Note Length selector (1/2, 1/4, 1/8, 1/16)
-- [x] Humanisation — full toolkit (velocity, strum spread, partial upstroke, timing micro-var, duration variation, note overlap, groove templates)
+- [ ] Pattern filtering — Genre mode vs Custom mode gating
 - [ ] Smart voice leading toggle
 - [ ] Sub-genre data model and selector
 - [ ] KeyboardPreset system
 
-### Music Dashboard (next major feature)
-- [ ] Design as shared composable driven by SessionViewModel / shared AppState
-- [ ] Implement on Jam Lab first, then carry to LoopBuilder and Theory Engine Room
-- [ ] Read-only version for Let's Jam! Screen
+### Music Dashboard — Remaining
+- [ ] Read-only version on Let's Jam! Screen (landscape layout — more involved)
 - [ ] ✏️ pencil per chord when extended chord mode is on
-- [ ] Current chord bolds as progression plays
+- [ ] Song Builder version (shows current block's musical content)
 
-### Pattern Library (Phase 2 — from AKO_PATTERNS_REFERENCE.md)
-- [ ] pima picking preset → PickingPreset.kt
-- [ ] banjo_roll picking preset → PickingPreset.kt
-- [ ] pinch picking preset → PickingPreset.kt
-- [ ] blackbird picking preset → PickingPreset.kt (needs walking bass calc)
-
-### Pattern Library (Phase 3 — require sub-genre wiring)
-- [ ] Motown / Soul (bass + drums + strum + Genre enum entry)
-- [ ] Flamenco (bass + drums + strum + Genre enum entry)
-- [ ] Ragtime / Boogie-Woogie (piano-led — KeyboardPreset first)
-
-### LoopBuilder — Playback Migration (next major task — agreed sequencing)
-**Agreed order: Playback migration → Preset save system → Music Dashboard**
-- [x] LoopBuilder playback migration — complete 16/08/2026. MainViewModel now uses JamLabAudioEngine + startPlaybackLoop() 8ms coroutine. withFrameMillis removed from PlaybackScreen. generateLoopEvents() deleted. Screen-off audio confirmed working.
-- [x] **Migrate LoopBuilder playback to Jam Lab engine** — replace `MainViewModel`'s old `BackingTrackGenerator.generateLoopEvents()` path with `StyleEngine` + 8ms polling loop (same system as Jam Lab). LoopBuilder currently uses a different timing mechanism that causes sync issues with the Jam Screen fretboard. Jam Lab sounds correct; LoopBuilder should use the same stack. `generateLoopEvents()` gets deleted as part of this migration.
-- [ ] → Jam Lab preset save system → Music Dashboard.
-- [ ] Full UI redesign — defer until playback migration is done
-- [ ] Three sections: 🎼 Music Theory Setup | 🎶 Sound Setup | 🎸 Lead Setup
+### LoopBuilder
+- [ ] Full UI redesign — three sections: 🎼 Music Theory Setup | 🎶 Sound Setup | 🎸 Lead Setup
 - [ ] Favourites: Save / Load / Scan / Import Loop
 - [ ] 7th chords toggle (All / 1 / 1&5 / 5 / Custom)
 - [ ] Repeat for X measures selector
@@ -629,15 +615,25 @@ engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName fo
 - [x] Humanisation — complete toolkit
 - [x] Dynamic SF2 patch discovery (nativeGetPresets full stack — C++ → Kotlin → Composable)
 - [x] Bank 120/127/128 excluded from melodic instrument slots
-- [x] Screen-off audio fixed
+- [x] Screen-off audio fixed (both JamLab and LoopBuilder)
 - [x] Wake lock in JamLabActivity
-- [x] Screen-off audio fixed in LoopBuilder (playback migration 16/08/2026)
 - [ ] Three-tier drum strategy (research complete — VCSL acoustic + Sonic Pi electronic + GM fallback)
 - [ ] SoundFont evaluation evening — all owned fonts per instrument
 - [ ] CC11 Expression automation for strings/winds
 - [ ] CC64 Sustain pedal for piano
 - [ ] Implement 7th chord notes — **NB flagged as important**
 - [ ] Research sfizz engine for future realistic sounds
+
+### Pattern Library (Phase 2 — from AKO_PATTERNS_REFERENCE.md)
+- [ ] pima picking preset → PickingPreset.kt
+- [ ] banjo_roll picking preset → PickingPreset.kt
+- [ ] pinch picking preset → PickingPreset.kt
+- [ ] blackbird picking preset → PickingPreset.kt (needs walking bass calc)
+
+### Pattern Library (Phase 3 — require sub-genre wiring)
+- [ ] Motown / Soul (bass + drums + strum + Genre enum entry)
+- [ ] Flamenco (bass + drums + strum + Genre enum entry)
+- [ ] Ragtime / Boogie-Woogie (piano-led — KeyboardPreset first)
 
 ### Future / Nice to Have
 - [ ] Alternate tunings, Capo support, ABC/OpenSong export
@@ -705,16 +701,27 @@ engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName fo
 - [x] Screen-off audio + wake lock
 - [x] JamLabAudioEngine genre-change auto-patch wiring (`loadGenrePatches` implemented)
 - [x] Ear-tune channel volumes (channelVolumeScale confirmed — see Key Learnings)
+- [x] Genre-aware chord quality styling system (`GenreChordStyle.kt`, chord style dropdown)
 - [ ] Genre-specific mixer defaults (deferred — values being finalised)
-- [ ] Progression display refinements
-- [ ] Save system (context-aware)
+- [ ] Save system (context-aware — next immediate priority)
 - [ ] Smart voice leading toggle
+- [ ] Sub-genre data model and selector
 - [ ] KeyboardPreset system
 
 **Music Dashboard**
-- [ ] Shared composable design
-- [ ] SessionViewModel / shared AppState
-- [ ] Implement on Jam Lab, then port to all screens
+- [x] `MusicDashboard.kt` — shared stateless composable (17/08/2026)
+- [x] Freeze-pane sticky layout on Jam Lab (17/08/2026)
+- [x] Freeze-pane sticky layout on LoopBuilder SetupScreen (17/08/2026)
+- [x] Live updates as selections change pre-playback (17/08/2026)
+- [x] Active chord highlight during playback (17/08/2026)
+- [ ] Read-only version on Let's Jam! Screen
+- [ ] ✏️ pencil per chord when extended chord mode is on
+
+**LoopBuilder Playback**
+- [x] Migrated to JamLabAudioEngine + 8ms coroutine loop (16/08/2026)
+- [x] `withFrameMillis` removed from PlaybackScreen
+- [x] `generateLoopEvents()` deleted from BackingTrackGenerator
+- [x] Screen-off audio confirmed working
 
 **Sound Quality**
 - [x] Bass Brain / Drum Brain — built, tested, reverted, deleted (31/07)
@@ -729,11 +736,11 @@ engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName fo
 ---
 
 ### ⬜ Milestone 2 — LoopBuilder V1 Release
-*(Defer UI redesign until Jam Lab is settled — port learnings)*
+*(Defer UI redesign until save system and Jam Lab are settled)*
 
 - [ ] Three sections: 🎼 Music Theory Setup | 🎶 Sound Setup | 🎸 Lead Setup
 - [ ] Favourites system, 7th chords toggle, Repeat for X measures
-- [ ] Music Dashboard 📺 integration
+- [ ] Music Dashboard read-only on Let's Jam! Screen
 - [ ] Fretboard improvements (scrolling fix, zoom, legend, fret numbers)
 - [ ] Silent count-in, auto stop timer, save last session
 
@@ -787,64 +794,3 @@ engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName fo
 - [ ] Play Store account + screenshots + app icon + description + keywords
 - [ ] Landing page + GitHub README
 - [ ] Recruit ~20 beta testers (guitar forums, Facebook groups, Reddit)
-
-Here are all the updates for this session. Two distinct pieces of work were completed.
-
-1. File Inventory — update these entries:
-
-JamLabAudioEngine.kt — add to end of description:
-
-engineName getter added (16/08/2026) — exposes midiPlayer.currentEngineName for LoopBuilder status display.
-
-BackingTrackGenerator.kt — replace description with:
-
-MidiNoteEvent(timeMs, channel, pitch, velocity, durationMs). Channel convention matches full 12-channel map (see Channel Map section). generateLoopEvents() deleted 16/08/2026 as part of LoopBuilder playback migration — StyleEngine.generateAccompaniment() is the sole event source. MidiNoteEvent data class is the only survivor — still the shared event type across the pipeline.
-
-MainViewModel.kt — replace description with:
-
-App state machine (AppState.Setup / Loading / Playback), overlay state, live scale/chord tone overlays. Now uses JamLabAudioEngine (not MidiPlayer). startPlaybackLoop() runs an 8ms delay() coroutine on Dispatchers.Default — screen-off audio works. tickSequencer() (was playChord()) is now private, driven by the loop only.
-
-MainActivity.kt — add to end of description:
-
-PlaybackScreen no longer drives timing — withFrameMillis loop removed. Chord display reads viewModel.currentChordIndex directly.
-
-Add new entry to Core Theory section:
-
-GenreChordStyle.kt — Genre-aware chord quality styling system (added 17/08/2026). Sits between progression lookup and resolveProgression(). ChordFamily enum classifies qualities by harmonic function (major/minor/dominant/diminished/augmented/sus). GenreChordRule sealed interface with two implementations: FunctionAwareRule (maps family→quality, used for Jazz) and BlanketRule (forces one quality, used for Blues). AsWrittenRule = no change. GenreChordStyles registry: first entry per genre is the default, rest populate the Chord Style dropdown. applyGenreChordStyle() writes into ChordSlot.genreQualityOverride. stylesFor(genre) feeds the UI dropdown.
-
-ProgressionDefinitions.kt — add to end of description:
-
-ChordSlot updated (17/08/2026): genreQualityOverride: ChordQuality? = null added as new constructor parameter. effectiveQuality updated to three-tier chain: userQualityOverride ?: genreQualityOverride ?: quality. resolveProgression() unchanged — already reads slot.effectiveQuality.
-
-JamLabActivity.kt — add to end of description:
-
-currentGenreChordStyle state (17/08/2026) — remember(currentGenre) key resets to genre default on genre switch. applyGenreChordStyle() called in Generate & Play before buildJamTimeline(). Chord Style SimpleDropdown added below Genre selector.
-
-2. Pending / Deferred — mark these done:
-
-Under LoopBuilder — Playback Migration, mark the whole block [x] and add:
-
-✅ Complete 16/08/2026. MainViewModel now uses JamLabAudioEngine + startPlaybackLoop() 8ms coroutine. withFrameMillis removed from PlaybackScreen. generateLoopEvents() deleted. Screen-off audio confirmed working.
-
-Under Jam Lab, mark done:
-
-[x] generateLoopEvents() deletion — deleted 16/08/2026 as part of LoopBuilder migration.
-
-3. Audio checklist — add under Milestone 1:
-
-[x] Screen-off audio fixed in LoopBuilder (playback migration 16/08/2026)
-
-4. Key Learnings — add new entry:
-
-Genre chord style sits upstream of everything. applyGenreChordStyle() must be called before buildJamTimeline() — not after. The three-tier ChordSlot.effectiveQuality chain (userQualityOverride ?: genreQualityOverride ?: quality) means resolveProgression() and ResolvedChord.name both pick up genre styling automatically with no further changes. This is why genre chord style was implemented before the Music Dashboard and preset save system — both depend on chord.name being correct.
-
-5. Sequencing — update agreed order:
-
-Playback migration ✅ → Genre chord style ✅ → Jam Lab preset save system → Music Dashboard
-
-Session summary — what was completed today:
-
-LoopBuilder playback migration — MidiPlayer → JamLabAudioEngine, withFrameMillis → 8ms coroutine, screen-off audio confirmed working. generateLoopEvents() deleted.
-Genre chord style system — ChordSlot three-tier quality chain, GenreChordStyle.kt, wired into Jam Lab with dropdown and genre-reset behaviour.
-
-Next session starts with: Jam Lab preset save system.
