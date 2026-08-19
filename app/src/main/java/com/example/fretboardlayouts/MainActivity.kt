@@ -200,6 +200,30 @@ fun SetupScreen(
             .distinctBy { it.barIndex }
             .map { it.chord.name to it.chord.romanLabel }
     }
+    // Application-scope session — feeds the shared Music Dashboard
+    // NEW made by Claude 18/08/2026
+    val app = LocalContext.current.applicationContext as FretboardLayoutsApplication
+    // Skip the very first fire so returning from PlaybackScreen doesn't overwrite
+    // whatever Jam Lab last pushed. Only push when user actively changes something.
+    // MODIFIED made by Claude 18/08/2026
+    var loopBuilderSessionPushed by remember { mutableStateOf(false) }
+    LaunchedEffect(currentKey, selectedProgression, selectedTimeSignature, selectedTempo, selectedGenre) {
+        if (loopBuilderSessionPushed) {
+            app.session.updateDashboard(
+                DashboardState(
+                    chordNames = dashboardChords.map { it.first },
+                    numerals = dashboardChords.map { it.second },
+                    keyLabel = selectedKey,
+                    timeSignature = selectedTimeSignature,
+                    tempo = selectedTempo,
+                    genre = selectedGenre
+                )
+            )
+        } else {
+            loopBuilderSessionPushed = true
+        }
+    }
+
     // made by Gemini 27/06: Auto-select first valid progression if current one becomes invalid
     LaunchedEffect(currentKey) {
         val currentValid =
@@ -226,13 +250,8 @@ fun SetupScreen(
             Spacer(modifier = Modifier.height(8.dp))
             // 📺 Music Dashboard — NEW made by Claude 17/08/2026
             MusicDashboard(
-                chordNames = dashboardChords.map { it.first },
-                numerals = dashboardChords.map { it.second },
+                state = app.session.dashboard,
                 activeChordIndex = -1,
-                keyLabel = selectedKey,
-                timeSignature = selectedTimeSignature,
-                tempo = selectedTempo,
-                genre = selectedGenre,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -550,6 +569,7 @@ fun PlaybackScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     var showTheoryGrid by remember { mutableStateOf(false) }
+    val app = LocalContext.current.applicationContext as FretboardLayoutsApplication // NEW made by Claude 18/08/2026
     DisposableEffect(key1 = Unit) {
         val activity = context.findActivity()
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -782,74 +802,89 @@ fun PlaybackScreen(
                     }
                 }
             }
-            // Row 2: Overlay controls
+            // Overlay 1 | Music Dashboard | Overlay 2
+            // MODIFIED made by Claude 18/08/2026
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Scale", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
-                Switch(
-                    checked = scaleOverlayVisible,
-                    onCheckedChange = onScaleOverlayToggled,
-                    modifier = Modifier.height(24.dp)
-                )
-                Text("Chord", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
-                Switch(
-                    checked = chordOverlayVisible,
-                    onCheckedChange = onChordOverlayToggled,
-                    modifier = Modifier.height(24.dp)
-                )
-                var scaleDropdownExpanded by remember { mutableStateOf(false) }
-                Box {
+                // ── Overlay 1 (left) — Scale ──────────────────────
+                // Compact single-line: label | switch | scale chip
+                // Full options behind ⚙️ popup (future)
+                // MODIFIED made by Claude 18/08/2026
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        text = liveScaleType.name,
-                        color = Color(0xFF90CAF9),
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier
-                            .clickable { scaleDropdownExpanded = true }
-                            .background(Color(0xFF333333), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                        text = "🎸 Overlay 1",
+                        fontSize = 12.sp,
+                        color = Color(0xFF7788AA)
                     )
-                    DropdownMenu(
-                        expanded = scaleDropdownExpanded,
-                        onDismissRequest = { scaleDropdownExpanded = false }
-                    ) {
-                        ScaleType.entries.forEach { scaleType ->
-                            DropdownMenuItem(
-                                text = { Text(scaleType.name) },
-                                onClick = {
-                                    onScaleTypeChanged(scaleType)
-                                    scaleDropdownExpanded = false
-                                }
+                    Switch(
+                        checked = scaleOverlayVisible,
+                        onCheckedChange = onScaleOverlayToggled,
+                        modifier = Modifier.height(24.dp)
+                    )
+                    if (scaleOverlayVisible) {
+                        var scaleDropdownExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            Text(
+                                text = liveScaleType.name,
+                                color = Color(0xFF90CAF9),
+                                fontSize = 9.sp,
+                                modifier = Modifier
+                                    .clickable { scaleDropdownExpanded = true }
+                                    .background(Color(0xFF333333), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
                             )
+                            DropdownMenu(
+                                expanded = scaleDropdownExpanded,
+                                onDismissRequest = { scaleDropdownExpanded = false }
+                            ) {
+                                ScaleType.entries.forEach { scaleType ->
+                                    DropdownMenuItem(
+                                        text = { Text(scaleType.name) },
+                                        onClick = {
+                                            onScaleTypeChanged(scaleType)
+                                            scaleDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
-            // Row 3: Progression visualizer
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                timeline.progressionLabels.forEachIndexed { index, label ->
-                    val isActive = currentEvent.barIndex == index
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(
-                                if (isActive) MaterialTheme.colorScheme.primary
-                                else Color(0xFF333333)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (isActive) Color.White else Color.Gray,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
+
+                // ── Music Dashboard (centre) ───────────────────────
+                MusicDashboard(
+                    state = app.session.dashboard,
+                    activeChordIndex = currentEvent.barIndex,
+                    compact = true,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // ── Overlay 2 (right) — Chord ─────────────────────
+                // Compact single-line: label | switch
+                // Full options behind ⚙️ popup (future)
+                // MODIFIED made by Claude 18/08/2026
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "🎸 Overlay 2",
+                        fontSize = 12.sp,
+                        color = Color(0xFF7788AA)
+                    )
+                    Switch(
+                        checked = chordOverlayVisible,
+                        onCheckedChange = onChordOverlayToggled,
+                        modifier = Modifier.height(24.dp)
+                    )
                 }
             }
         }

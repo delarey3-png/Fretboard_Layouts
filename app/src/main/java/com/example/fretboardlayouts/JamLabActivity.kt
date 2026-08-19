@@ -489,6 +489,30 @@ fun JamLabScreen() {
                 .map { it.chord.name to it.chord.romanLabel }
         }
 
+    // Application-scope session — feeds the shared Music Dashboard
+    // NEW made by Claude 18/08/2026
+    val app = LocalContext.current.applicationContext as FretboardLayoutsApplication
+    // Skip the very first fire (first render) so we don't overwrite session with
+    // Jam Lab's local defaults when the user navigates here from LoopBuilder.
+    // MODIFIED made by Claude 18/08/2026
+    var jamLabSessionPushed by remember { mutableStateOf(false) }
+    LaunchedEffect(currentKeyObj, currentProgression, currentGenreChordStyle, currentTimeSignature, currentTempo, currentGenre) {
+        if (jamLabSessionPushed) {
+            app.session.updateDashboard(
+                DashboardState(
+                    chordNames = dashboardChords.map { it.first },
+                    numerals = dashboardChords.map { it.second },
+                    keyLabel = currentKey,
+                    timeSignature = currentTimeSignature,
+                    tempo = currentTempo,
+                    genre = currentGenre
+                )
+            )
+        } else {
+            jamLabSessionPushed = true
+        }
+    }
+
     // Auto-select first valid progression when key modality changes
     LaunchedEffect(currentKeyObj) {
         val currentValid =
@@ -585,13 +609,8 @@ fun JamLabScreen() {
         )
         // 📺 Music Dashboard — MODIFIED made by Claude 17/08/2026
         MusicDashboard(
-            chordNames = dashboardChords.map { it.first },
-            numerals = dashboardChords.map { it.second },
+            state = app.session.dashboard,
             activeChordIndex = if (isPlaying) currentBarIndex else -1,
-            keyLabel = currentKey,
-            timeSignature = currentTimeSignature,
-            tempo = currentTempo,
-            genre = currentGenre,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
