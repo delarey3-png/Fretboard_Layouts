@@ -58,7 +58,8 @@ class JamLabViewModel(application: Application) : AndroidViewModel(application) 
     var currentScale         by mutableStateOf(ScaleType.FULL)
     var currentStrumPreset   by mutableStateOf(allGuitarPresets[0])
     var currentPickingPreset by mutableStateOf(allPickingPresets[0])
-    var customStrumMode      by mutableStateOf(false)
+    var customStrumMode        by mutableStateOf(false)
+    var voiceLeadingEnabled    by mutableStateOf(false) // NEW made by Claude 19/08/2026
     var currentNoteLength    by mutableStateOf("1/4")
     var currentHumanisation  by mutableStateOf(HumanisationLevel.OFF)
     var currentBarIndex      by mutableIntStateOf(0)
@@ -69,7 +70,7 @@ class JamLabViewModel(application: Application) : AndroidViewModel(application) 
     var selectedPatchByChannel by mutableStateOf(mapOf<Int, PatchOption>())
     var isPlaying            by mutableStateOf(false)
     var showGeneratingMessage by mutableStateOf(false)
-    var currentTimeline      by mutableStateOf<JamTimeline?>(null)
+    var currentTimeline          by mutableStateOf<JamTimeline?>(null)
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     override fun onCleared() {

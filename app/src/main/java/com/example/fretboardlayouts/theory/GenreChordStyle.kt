@@ -1,19 +1,14 @@
 package com.example.fretboardlayouts.theory
 
 // made by Claude 17/08/2026 — genre-aware chord quality styling.
-//
-// Sits between "look up a progression" and "resolve it against a key":
-//
-//   Progressions.ALL[name]        -> List<ChordSlot>     (harmonic skeleton)
-//   applyGenreChordStyle(...)     -> List<ChordSlot>     (genreQualityOverride set per genre)  <-- THIS FILE
-//   [future: per-chord override]  -> List<ChordSlot>     (userQualityOverride wins last)
-//   resolveProgression(key, ...)  -> List<ResolvedChord> (final pitches via slot.effectiveQuality)
-//
-// Classifies each slot by its current chord FAMILY (major/minor/dominant/diminished/
-// augmented/sus) rather than raw scale degree, so the same rule works correctly in
-// major or minor keys and correctly handles borrowed chords (bVII, bVI, etc.).
+// MODIFIED made by Claude 19/08/2026 — fixed degree-vs-quality bug:
+//   FunctionAwareRule and dominantVOnly previously checked slot.effectiveQuality.family()
+//   to identify the dominant chord. Since V starts as plain MAJOR quality (correct),
+//   it was indistinguishable from I and IV. jazz7ths incorrectly returned MAJOR7 for V;
+//   dominantVOnly's appliesTo never fired. Fixed via isDominantFunction() which checks
+//   slot.degree alongside quality, so degree 5 major is correctly identified as dominant.
 
-/** Broad harmonic family a chord quality belongs to, used to drive genre-style rules. */
+/** Broad harmonic family a chord quality belongs to. */
 enum class ChordFamily {
     MAJOR_FAMILY,
     MINOR_FAMILY,
@@ -48,21 +43,36 @@ fun ChordQuality.family(): ChordFamily = when (this) {
 }
 
 /**
- * A named, selectable rule for how a genre re-colours chord qualities.
- * apply() returns null to mean "no genre opinion — keep the base quality as-is."
- * This null is stored in ChordSlot.genreQualityOverride, which the three-tier
- * effectiveQuality chain treats as "not set."
+ * Returns true if this slot functions as the dominant in its progression context.
+ *
+ * Checks BOTH degree and current base quality:
+ *   - Degree 5 + major or already-dominant quality → dominant function (V or V7)
+ *   - Degree 5 + minor quality → NOT dominant function (natural minor v — leave it alone)
+ *   - Degree 7 + diminished quality → dominant function (vii°, leading-tone chord)
+ *
+ * Using slot.quality (not slot.effectiveQuality) is intentional: we're deciding
+ * what genre override TO APPLY, so we must read the base quality before any override.
+ * MODIFIED made by Claude 19/08/2026
  */
+fun isDominantFunction(slot: ChordSlot): Boolean =
+    (slot.degree == 5 &&
+            slot.quality.family() in setOf(ChordFamily.MAJOR_FAMILY, ChordFamily.DOMINANT_FAMILY)) ||
+            (slot.degree == 7 && slot.quality.family() == ChordFamily.DIMINISHED_FAMILY)
+
+// ── Rule types ────────────────────────────────────────────────────
+
 sealed interface GenreChordRule {
-    val id: String            // stable key — used for dropdown state
-    val displayName: String   // shown in the UI dropdown
-    fun apply(slot: ChordSlot): ChordQuality?  // null = no override
+    val id: String
+    val displayName: String
+    fun apply(slot: ChordSlot): ChordQuality?
 }
 
 /**
- * Maps by harmonic FUNCTION, not raw scale degree.
- * e.g. Jazz: major-family → Maj7, minor-family → m7, dominant-family → 7.
- * Families not present in [familyMap] return null (chord left unchanged).
+ * Maps by harmonic FUNCTION.
+ * Degree-aware: dominant function (degree 5 major, degree 7 dim) routes to
+ * DOMINANT_FAMILY mapping regardless of the chord's current quality family.
+ * All other slots route by their quality family as before.
+ * MODIFIED made by Claude 19/08/2026 — was purely quality-family-based
  */
 data class FunctionAwareRule(
     override val id: String,
@@ -70,13 +80,15 @@ data class FunctionAwareRule(
     val familyMap: Map<ChordFamily, ChordQuality>
 ) : GenreChordRule {
     override fun apply(slot: ChordSlot): ChordQuality? =
-        familyMap[slot.effectiveQuality.family()] // null if this family has no mapping
+        if (isDominantFunction(slot))
+            familyMap[ChordFamily.DOMINANT_FAMILY]   // V always maps to the dominant entry
+        else
+            familyMap[slot.quality.family()]         // use base quality, not effectiveQuality
 }
 
 /**
- * Forces ONE quality onto every slot, or only slots matching [appliesTo].
- * e.g. Blues: every chord → Dominant7 (no filter).
- * e.g. "Dominant V7 only": just the dominant-family slot gets a 7th, rest return null.
+ * Forces ONE quality onto every slot matching [appliesTo].
+ * MODIFIED made by Claude 19/08/2026 — dominantVOnly now uses isDominantFunction()
  */
 data class BlanketRule(
     override val id: String,
@@ -88,29 +100,25 @@ data class BlanketRule(
         if (appliesTo(slot)) targetQuality else null
 }
 
-/** No change — "as written." Stores null in genreQualityOverride, base quality wins. */
+/** No change — "as written." */
 object AsWrittenRule : GenreChordRule {
     override val id = "as_written"
     override val displayName = "As Written"
     override fun apply(slot: ChordSlot): ChordQuality? = null
 }
 
-/**
- * Registry of available chord styles per genre. First entry in each list is the
- * default applied automatically when that genre is selected; the rest populate
- * a dropdown for manual override — same pattern as allGuitarPresets / allPickingPresets.
- * Genres absent from the map fall back to AsWrittenRule via defaultFor().
- */
+// ── Rule definitions ──────────────────────────────────────────────
+
 object GenreChordStyles {
 
     private val jazz7ths = FunctionAwareRule(
         id = "jazz_7ths",
         displayName = "Jazz 7ths (Δ⁷ / m⁷ / 7)",
         familyMap = mapOf(
-            ChordFamily.MAJOR_FAMILY      to ChordQuality.MAJOR7,
-            ChordFamily.MINOR_FAMILY      to ChordQuality.MINOR7,
-            ChordFamily.DOMINANT_FAMILY   to ChordQuality.DOMINANT7,
-            ChordFamily.DIMINISHED_FAMILY to ChordQuality.MINOR7_FLAT5
+            ChordFamily.MAJOR_FAMILY      to ChordQuality.MAJOR7,      // I, IV → Maj7
+            ChordFamily.MINOR_FAMILY      to ChordQuality.MINOR7,      // ii, vi → m7
+            ChordFamily.DOMINANT_FAMILY   to ChordQuality.DOMINANT7,   // V (routed by degree) → 7
+            ChordFamily.DIMINISHED_FAMILY to ChordQuality.MINOR7_FLAT5 // vii° → ø7
         )
     )
 
@@ -120,14 +128,14 @@ object GenreChordStyles {
         targetQuality = ChordQuality.DOMINANT7
     )
 
-    // Only the dominant-family chord (the V) gets a 7th by default.
-    // I, IV, vi stay as plain triads. Full jazz-style 7ths still available
-    // as a manual dropdown option for genres that want it.
+    // V only — uses isDominantFunction() so it correctly identifies degree 5 major
+    // and vii° as dominant-function chords. Minor v (natural minor) is left unchanged.
+    // MODIFIED made by Claude 19/08/2026 — was broken (never fired)
     private val dominantVOnly = BlanketRule(
         id = "dominant_v_only",
         displayName = "Dominant V7 Only",
         targetQuality = ChordQuality.DOMINANT7,
-        appliesTo = { slot -> slot.effectiveQuality.family() == ChordFamily.DOMINANT_FAMILY }
+        appliesTo = { slot -> isDominantFunction(slot) }
     )
 
     val byGenre: Map<Genre, List<GenreChordRule>> = mapOf(
@@ -141,17 +149,9 @@ object GenreChordStyles {
         Genre.REGGAE  to listOf(AsWrittenRule, dominantVOnly)
     )
 
-    /** The rule applied automatically when [genre] is first selected. */
     fun defaultFor(genre: Genre): GenreChordRule = byGenre[genre]?.firstOrNull() ?: AsWrittenRule
-
-    /** All available rules for [genre], for populating the style dropdown. */
     fun stylesFor(genre: Genre): List<GenreChordRule> = byGenre[genre] ?: listOf(AsWrittenRule)
 }
 
-/**
- * Applies [rule] to every slot in [slots], writing the result into
- * ChordSlot.genreQualityOverride. A null result from rule.apply() means
- * "no genre opinion" — the base quality will win in the effectiveQuality chain.
- */
 fun applyGenreChordStyle(slots: List<ChordSlot>, rule: GenreChordRule): List<ChordSlot> =
     slots.map { slot -> slot.copy(genreQualityOverride = rule.apply(slot)) }

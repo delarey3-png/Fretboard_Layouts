@@ -1,4 +1,6 @@
 package com.example.fretboardlayouts.audio
+import com.example.fretboardlayouts.theory.ChordNoteBuilder
+import com.example.fretboardlayouts.theory.ChordType
 import com.example.fretboardlayouts.theory.Genre
 import com.example.fretboardlayouts.theory.JamTimeline
 import com.example.fretboardlayouts.theory.ResolvedChord
@@ -17,6 +19,8 @@ import com.example.fretboardlayouts.theory.humaniseDuration   // made by Claude 
 import com.example.fretboardlayouts.theory.GrooveType         // made by Claude 11/07
 import com.example.fretboardlayouts.theory.grooveOffsetMs     // made by Claude 11/07
 import com.example.fretboardlayouts.theory.InstrumentRole     // made by Claude 11/07
+import com.example.fretboardlayouts.theory.VoiceLeadingEngine
+
 /**
  * The "Band-in-a-Box" style engine.
  * Takes a Chord Timeline and a Genre, and produces a multi-track MIDI performance.
@@ -62,16 +66,16 @@ object StyleEngine {
     // Extended for full GM group channel map. Channel 3 = Organ (was Strings).
     // Strings now on channel 4. Starting values — tune by ear per genre.
     private val channelVolumeScale = mapOf(
-        0  to 0.78f,  // Guitar    — pulled back into the band mix
-        1  to 0.98f,  // Bass      — slightly under guitar
-        2  to 0.80f,  // Piano
-        3  to 0.75f,  // Organ     — same level as old Strings (ch3 reassigned 09/08/2026)
-        4  to 0.75f,  // Strings   — shifted from ch3
-        5  to 0.70f,  // Ensemble  — pads sit under strings
-        6  to 0.78f,  // Brass     — section needs presence
-        7  to 0.75f,  // Reed      — solo instrument
-        8  to 0.72f,  // Pipe      — light instrument
-        9  to 1.00f,  // Drums
+        0 to 0.78f,  // Guitar    — pulled back into the band mix
+        1 to 0.98f,  // Bass      — slightly under guitar
+        2 to 0.80f,  // Piano
+        3 to 0.75f,  // Organ     — same level as old Strings (ch3 reassigned 09/08/2026)
+        4 to 0.75f,  // Strings   — shifted from ch3
+        5 to 0.70f,  // Ensemble  — pads sit under strings
+        6 to 0.78f,  // Brass     — section needs presence
+        7 to 0.75f,  // Reed      — solo instrument
+        8 to 0.72f,  // Pipe      — light instrument
+        9 to 1.00f,  // Drums
         10 to 0.65f,  // Synth     — pads sit under everything
         11 to 0.75f   // Ethnic
     )
@@ -82,52 +86,104 @@ object StyleEngine {
         guitarPreset: StrumPreset,
         pickingPreset: PickingPreset? = null,
         humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
-        instrumentRoles: Map<String, InstrumentRole> = emptyMap() // made by Claude 11/07
+        instrumentRoles: Map<String, InstrumentRole> = emptyMap(), // made by Claude 11/07
+        voiceLeadingEnabled: Boolean = false  // NEW made by Claude 19/08/2026
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
+        // Voice leading state — previous voicing tracked across chord changes
+        // NEW made by Claude 19/08/2026
+        var prevGuitarVoicing: List<Int> = emptyList()
+        var prevPianoVoicing: List<Int> = emptyList()
         timeline.events.forEachIndexed { barIndex, event ->
-            val chord      = event.chord
-            val startMs    = event.startMs
+            val chord = event.chord
+            val startMs = event.startMs
             val durationMs = event.durationMs
             // made by Claude 11/07: Role-aware generation — only active channels produce events
-            val drumsRole    = instrumentRoles["drums"]    ?: InstrumentRole.STRUM_CHORD
-            val bassRole     = instrumentRoles["bass"]     ?: InstrumentRole.STRUM_CHORD
-            val guitarRole   = instrumentRoles["guitar"]   ?: InstrumentRole.STRUM_CHORD
-            val pianoRole    = instrumentRoles["piano"]    ?: InstrumentRole.OFF
-            val stringsRole  = instrumentRoles["strings"]  ?: InstrumentRole.OFF
+            val drumsRole = instrumentRoles["drums"] ?: InstrumentRole.STRUM_CHORD
+            val bassRole = instrumentRoles["bass"] ?: InstrumentRole.STRUM_CHORD
+            val guitarRole = instrumentRoles["guitar"] ?: InstrumentRole.STRUM_CHORD
+            val pianoRole = instrumentRoles["piano"] ?: InstrumentRole.OFF
+            val stringsRole = instrumentRoles["strings"] ?: InstrumentRole.OFF
             // NEW made by Claude 09/08/2026 — expanded instrument set
-            val organRole    = instrumentRoles["organ"]    ?: InstrumentRole.OFF
+            val organRole = instrumentRoles["organ"] ?: InstrumentRole.OFF
             val ensembleRole = instrumentRoles["ensemble"] ?: InstrumentRole.OFF
-            val brassRole    = instrumentRoles["brass"]    ?: InstrumentRole.OFF
-            val reedRole     = instrumentRoles["reed"]     ?: InstrumentRole.OFF
-            val pipeRole     = instrumentRoles["pipe"]     ?: InstrumentRole.OFF
-            val synthRole    = instrumentRoles["synth"]    ?: InstrumentRole.OFF
-            val ethnicRole   = instrumentRoles["ethnic"]   ?: InstrumentRole.OFF
+            val brassRole = instrumentRoles["brass"] ?: InstrumentRole.OFF
+            val reedRole = instrumentRoles["reed"] ?: InstrumentRole.OFF
+            val pipeRole = instrumentRoles["pipe"] ?: InstrumentRole.OFF
+            val synthRole = instrumentRoles["synth"] ?: InstrumentRole.OFF
+            val ethnicRole = instrumentRoles["ethnic"] ?: InstrumentRole.OFF
 
             if (drumsRole != InstrumentRole.OFF)
                 allEvents.addAll(generateDrums(startMs, durationMs, genre, timeSignature))
             if (bassRole != InstrumentRole.OFF)
                 allEvents.addAll(generateBass(startMs, durationMs, chord, genre, timeSignature))
             if (guitarRole != InstrumentRole.OFF) {
+                // MODIFIED made by Claude 19/08/2026 — voice leading computes voicing once,
+                // shared by whichever guitar generator runs (strum or picking)
+                val guitarVoicing: List<Int>? = if (voiceLeadingEnabled) {
+                    VoiceLeadingEngine.leadToGuitar(
+                        prevGuitarVoicing, chord.rootPitchClass, chord.quality
+                    ).also { prevGuitarVoicing = it }
+                } else null
                 if (pickingPreset != null && pickingPreset.layers.isNotEmpty()
-                    && guitarRole == InstrumentRole.PICK_ARPEGGIO) {
-                    allEvents.addAll(generateGuitarPicking(startMs, durationMs, chord, pickingPreset, timeSignature))
+                    && guitarRole == InstrumentRole.PICK_ARPEGGIO
+                ) {
+                    allEvents.addAll(
+                        generateGuitarPicking(
+                            startMs, durationMs, chord, pickingPreset, timeSignature,
+                            precomputedVoicing = guitarVoicing
+                        )
+                    )
                 } else {
-                    allEvents.addAll(generateGuitar(startMs, durationMs, chord, guitarPreset, timeSignature))
+                    allEvents.addAll(
+                        generateGuitar(
+                            startMs, durationMs, chord, guitarPreset, timeSignature,
+                            precomputedVoicing = guitarVoicing
+                        )
+                    )
                 }
             }
-            if (pianoRole != InstrumentRole.OFF)    // made by Claude 11/07
-                allEvents.addAll(generatePiano(startMs, durationMs, chord, genre, timeSignature, pianoRole))
+            if (pianoRole != InstrumentRole.OFF) {  // MODIFIED made by Claude 19/08/2026
+                val pianoVoicing: List<Int>? = if (voiceLeadingEnabled) {
+                    VoiceLeadingEngine.leadToPiano(
+                        prevPianoVoicing, chord.rootPitchClass, chord.quality
+                    ).also { prevPianoVoicing = it }
+                } else null
+                allEvents.addAll(
+                    generatePiano(
+                        startMs, durationMs, chord, genre, timeSignature, pianoRole,
+                        precomputedVoicing = pianoVoicing
+                    )
+                )
+            }
             if (stringsRole != InstrumentRole.OFF)  // made by Claude 11/07
                 allEvents.addAll(generateStrings(startMs, durationMs, chord))
             // NEW made by Claude 09/08/2026 — new instrument generators
             if (organRole != InstrumentRole.OFF)
-                allEvents.addAll(generateOrgan(startMs, durationMs, chord, genre, timeSignature, organRole))
+                allEvents.addAll(
+                    generateOrgan(
+                        startMs,
+                        durationMs,
+                        chord,
+                        genre,
+                        timeSignature,
+                        organRole
+                    )
+                )
             if (ensembleRole != InstrumentRole.OFF)
                 allEvents.addAll(generateEnsemble(startMs, durationMs, chord))
             if (brassRole != InstrumentRole.OFF)
-                allEvents.addAll(generateBrass(startMs, durationMs, chord, genre, timeSignature, brassRole))
+                allEvents.addAll(
+                    generateBrass(
+                        startMs,
+                        durationMs,
+                        chord,
+                        genre,
+                        timeSignature,
+                        brassRole
+                    )
+                )
             if (reedRole != InstrumentRole.OFF)
                 allEvents.addAll(generateReed(startMs, durationMs, chord, timeSignature, reedRole))
             if (pipeRole != InstrumentRole.OFF)
@@ -135,12 +191,23 @@ object StyleEngine {
             if (synthRole != InstrumentRole.OFF)
                 allEvents.addAll(generateSynth(startMs, durationMs, chord))
             if (ethnicRole != InstrumentRole.OFF)
-                allEvents.addAll(generateEthnic(startMs, durationMs, chord, timeSignature, ethnicRole))
+                allEvents.addAll(
+                    generateEthnic(
+                        startMs,
+                        durationMs,
+                        chord,
+                        timeSignature,
+                        ethnicRole
+                    )
+                )
         }
         // Apply humanisation as post-processing step.
         // MODIFIED made by Claude 05/08/2026 — apply channel volume scaling even without humanisation
         if (humanisationLevel == HumanisationLevel.OFF) return allEvents.map { event ->
-            event.copy(velocity = (event.velocity * (channelVolumeScale[event.channel] ?: 1.0f)).toInt().coerceIn(1, 127))
+            event.copy(
+                velocity = (event.velocity * (channelVolumeScale[event.channel] ?: 1.0f)).toInt()
+                    .coerceIn(1, 127)
+            )
         }
         val humanProfile = humanisationProfile(humanisationLevel)
         // made by Claude 11/07: Groove template — consistent genre feel on top of random variation
@@ -150,23 +217,27 @@ object StyleEngine {
         else 500L
         return allEvents.map { event ->
             val isAccent = event.velocity >= 95
-            val groove   = grooveOffsetMs(event.timeMs, beatDurationMs, grooveType, event.channel)
+            val groove = grooveOffsetMs(event.timeMs, beatDurationMs, grooveType, event.channel)
             event.copy(
                 // MODIFIED made by Claude 05/08/2026 — scale after humanisation so channel balance survives velocity variation
                 velocity = (humaniseVelocity(
                     baseVelocity = event.velocity,
-                    channel      = event.channel,
-                    isAccent     = isAccent,
-                    profile      = humanProfile
+                    channel = event.channel,
+                    isAccent = isAccent,
+                    profile = humanProfile
                 ) * (channelVolumeScale[event.channel] ?: 1.0f)).toInt().coerceIn(1, 127),
                 timeMs = (humaniseTiming(
                     baseTimeMs = event.timeMs,
-                    channel    = event.channel,
-                    isAccent   = isAccent,
-                    profile    = humanProfile
+                    channel = event.channel,
+                    isAccent = isAccent,
+                    profile = humanProfile
                 ) + groove).coerceAtLeast(0L),
                 durationMs = if (event.channel == 0) {
-                    (humaniseDuration(event.durationMs, event.channel, humanProfile) * 1.15f).toInt()
+                    (humaniseDuration(
+                        event.durationMs,
+                        event.channel,
+                        humanProfile
+                    ) * 1.15f).toInt()
                 } else {
                     humaniseDuration(event.durationMs, event.channel, humanProfile)
                 }
@@ -176,14 +247,14 @@ object StyleEngine {
 
     // made by Claude 11/07: Genre groove type mapping
     private fun genreGroove(genre: Genre): GrooveType = when (genre) {
-        Genre.JAZZ    -> GrooveType.LAID_BACK  // classic laid-back swing feel
-        Genre.BLUES   -> GrooveType.LAID_BACK  // laid-back blues feel
-        Genre.FUNK    -> GrooveType.LAID_BACK  // subtle pocket feel
-        Genre.ROCK    -> GrooveType.STRAIGHT   // tight on the beat
+        Genre.JAZZ -> GrooveType.LAID_BACK  // classic laid-back swing feel
+        Genre.BLUES -> GrooveType.LAID_BACK  // laid-back blues feel
+        Genre.FUNK -> GrooveType.LAID_BACK  // subtle pocket feel
+        Genre.ROCK -> GrooveType.STRAIGHT   // tight on the beat
         Genre.COUNTRY -> GrooveType.PUSHED     // train-beat forward drive
-        Genre.DISCO   -> GrooveType.STRAIGHT   // four-on-the-floor is metronomically rigid
-        Genre.SKA     -> GrooveType.STRAIGHT   // ska is mechanically precise
-        Genre.REGGAE  -> GrooveType.LAID_BACK  // behind-the-beat spacious feel
+        Genre.DISCO -> GrooveType.STRAIGHT   // four-on-the-floor is metronomically rigid
+        Genre.SKA -> GrooveType.STRAIGHT   // ska is mechanically precise
+        Genre.REGGAE -> GrooveType.LAID_BACK  // behind-the-beat spacious feel
     }
 
     // ─── DRUMS ───────────────────────────────────────────────────────────────
@@ -198,206 +269,623 @@ object StyleEngine {
         when (genre) {
             // ── ROCK ─────────────────────────────────────────────────────────
             Genre.ROCK -> {
-                val hihat = parsePattern(when (b) {
-                    3    -> "<x>_x_<x>_x_<x>_x_"
-                    5    -> "<x>_x_<x>_x_<x>_x_<x>_x_<x>_x_"
-                    else -> "<x>_x_<x>_x_<x>_x_<x>_x_"
-                })
-                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 65, 80, ticksPerBeat = 4))
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>___________"
-                    5    -> "<x>_______x___________"
-                    else -> "<x>_______x_______"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 95, 105, noteLengthMs = 100, ticksPerBeat = 4))
-                val snare = parsePattern(when (b) {
-                    3    -> "____<x>_______"
-                    5    -> "____<x>___________<x>___"
-                    else -> "____<x>_______<x>___"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 95, 95, noteLengthMs = 100, ticksPerBeat = 4))
+                val hihat = parsePattern(
+                    when (b) {
+                        3 -> "<x>_x_<x>_x_<x>_x_"
+                        5 -> "<x>_x_<x>_x_<x>_x_<x>_x_<x>_x_"
+                        else -> "<x>_x_<x>_x_<x>_x_<x>_x_"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hihat,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        65,
+                        80,
+                        ticksPerBeat = 4
+                    )
+                )
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>___________"
+                        5 -> "<x>_______x___________"
+                        else -> "<x>_______x_______"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        95,
+                        105,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "____<x>_______"
+                        5 -> "____<x>___________<x>___"
+                        else -> "____<x>_______<x>___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        95,
+                        95,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
             }
             // ── COUNTRY ──────────────────────────────────────────────────────
             Genre.COUNTRY -> {
-                val hihat = parsePattern(when (b) {
-                    3    -> "<x>_x_<x>_x_<x>_x_"
-                    5    -> "<x>_x_<x>_x_<x>_x_<x>_x_<x>_x_"
-                    else -> "<x>_x_<x>_x_<x>_x_<x>_x_"
-                })
-                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 50, 70, ticksPerBeat = 4))
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>___________"
-                    5    -> "<x>_______x___________"
-                    else -> "<x>_______x_______"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 95, 100, noteLengthMs = 100, ticksPerBeat = 4))
-                val snare = parsePattern(when (b) {
-                    3    -> "____<x>_______"
-                    5    -> "____<x>___________<x>___"
-                    else -> "____<x>_______<x>___"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 70, 70, noteLengthMs = 100, ticksPerBeat = 4))
+                val hihat = parsePattern(
+                    when (b) {
+                        3 -> "<x>_x_<x>_x_<x>_x_"
+                        5 -> "<x>_x_<x>_x_<x>_x_<x>_x_<x>_x_"
+                        else -> "<x>_x_<x>_x_<x>_x_<x>_x_"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hihat,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        50,
+                        70,
+                        ticksPerBeat = 4
+                    )
+                )
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>___________"
+                        5 -> "<x>_______x___________"
+                        else -> "<x>_______x_______"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        95,
+                        100,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "____<x>_______"
+                        5 -> "____<x>___________<x>___"
+                        else -> "____<x>_______<x>___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        70,
+                        70,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
             }
             // ── FUNK ─────────────────────────────────────────────────────────
             Genre.FUNK -> {
-                val hihat = parsePattern(when (b) {
-                    3    -> "<x>xxx<x>xxx<x>xxx"
-                    5    -> "<x>xxx<x>xxx<x>xxx<x>xxx<x>xxx"
-                    else -> "<x>xxx<x>xxx<x>xxx<x>xxx"
-                })
-                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 50, 80, noteLengthMs = 40, ticksPerBeat = 4))
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>___________"
-                    5    -> "<x>_______x___________"
-                    else -> "<x>_______x_______"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 85, 100, noteLengthMs = 100, ticksPerBeat = 4))
-                val snare = parsePattern(when (b) {
-                    3    -> "____<x>_______"
-                    5    -> "____<x>___________<x>___"
-                    else -> "____<x>_______<x>___"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 100, 100, noteLengthMs = 100, ticksPerBeat = 4))
+                val hihat = parsePattern(
+                    when (b) {
+                        3 -> "<x>xxx<x>xxx<x>xxx"
+                        5 -> "<x>xxx<x>xxx<x>xxx<x>xxx<x>xxx"
+                        else -> "<x>xxx<x>xxx<x>xxx<x>xxx"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hihat,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        50,
+                        80,
+                        noteLengthMs = 40,
+                        ticksPerBeat = 4
+                    )
+                )
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>___________"
+                        5 -> "<x>_______x___________"
+                        else -> "<x>_______x_______"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        85,
+                        100,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "____<x>_______"
+                        5 -> "____<x>___________<x>___"
+                        else -> "____<x>_______<x>___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        100,
+                        100,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
             }
             // ── BLUES ─────────────────────────────────────────────────────────
             // Shuffle/swing triplet grid. tpb=3.
             Genre.BLUES -> {
-                val ride = parsePattern(when (b) {
-                    3    -> "<x>_x<x>_x<x>_x"
-                    5    -> "<x>_x<x>_x<x>_x<x>_x<x>_x"
-                    else -> "<x>_x<x>_x<x>_x<x>_x"
-                })
-                events.addAll(renderVoice(ride, startMs, durationMs, timeSignature, 9, 42, 60, 75, ticksPerBeat = 3))
+                val ride = parsePattern(
+                    when (b) {
+                        3 -> "<x>_x<x>_x<x>_x"
+                        5 -> "<x>_x<x>_x<x>_x<x>_x<x>_x"
+                        else -> "<x>_x<x>_x<x>_x<x>_x"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        ride,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        60,
+                        75,
+                        ticksPerBeat = 3
+                    )
+                )
                 // Open hi-hat on triplet upbeats — the shuffle shimmer
-                val openHH = parsePattern(when (b) {
-                    3    -> "__x__x__x"
-                    5    -> "__x__x__x__x__x"
-                    else -> "__x__x__x__x"
-                })
-                events.addAll(renderVoice(openHH, startMs, durationMs, timeSignature, 9, 46, 68, 68, noteLengthMs = 80, ticksPerBeat = 3))
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>________"
-                    5    -> "<x>_____x_____x__"
-                    else -> "<x>_____x_____"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 90, 100, noteLengthMs = 100, ticksPerBeat = 3))
-                val snare = parsePattern(when (b) {
-                    3    -> "___x_____"
-                    5    -> "___x_____x_____"
-                    else -> "___x_____x__"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 3))
+                val openHH = parsePattern(
+                    when (b) {
+                        3 -> "__x__x__x"
+                        5 -> "__x__x__x__x__x"
+                        else -> "__x__x__x__x"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        openHH,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        46,
+                        68,
+                        68,
+                        noteLengthMs = 80,
+                        ticksPerBeat = 3
+                    )
+                )
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>________"
+                        5 -> "<x>_____x_____x__"
+                        else -> "<x>_____x_____"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        90,
+                        100,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 3
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "___x_____"
+                        5 -> "___x_____x_____"
+                        else -> "___x_____x__"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        90,
+                        90,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 3
+                    )
+                )
                 // Ghost snare on upbeat before 2&4
-                val ghostSnare = parsePattern(when (b) {
-                    3    -> "__x______"
-                    5    -> "__x_____x______"
-                    else -> "__x_____x___"
-                })
-                events.addAll(renderVoice(ghostSnare, startMs, durationMs, timeSignature, 9, 38, 32, 32, noteLengthMs = 50, ticksPerBeat = 3))
+                val ghostSnare = parsePattern(
+                    when (b) {
+                        3 -> "__x______"
+                        5 -> "__x_____x______"
+                        else -> "__x_____x___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        ghostSnare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        32,
+                        32,
+                        noteLengthMs = 50,
+                        ticksPerBeat = 3
+                    )
+                )
             }
             // ── JAZZ ─────────────────────────────────────────────────────────
             Genre.JAZZ -> {
-                val ride = parsePattern(when (b) {
-                    3    -> "<x>_x<x>_____"
-                    5    -> "<x>_x<x>__<x>_x<x>__<x>__"
-                    else -> "<x>_x<x>__<x>_x<x>__"
-                })
-                events.addAll(renderVoice(ride, startMs, durationMs, timeSignature, 9, 51, 55, 70, noteLengthMs = 100, ticksPerBeat = 3))
-                val hihat = parsePattern(when (b) {
-                    3    -> "___x_____"
-                    5    -> "___x_____x_____"
-                    else -> "___x_____x__"
-                })
-                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 44, 80, 80, noteLengthMs = 50, ticksPerBeat = 3))
+                val ride = parsePattern(
+                    when (b) {
+                        3 -> "<x>_x<x>_____"
+                        5 -> "<x>_x<x>__<x>_x<x>__<x>__"
+                        else -> "<x>_x<x>__<x>_x<x>__"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        ride,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        51,
+                        55,
+                        70,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 3
+                    )
+                )
+                val hihat = parsePattern(
+                    when (b) {
+                        3 -> "___x_____"
+                        5 -> "___x_____x_____"
+                        else -> "___x_____x__"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hihat,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        44,
+                        80,
+                        80,
+                        noteLengthMs = 50,
+                        ticksPerBeat = 3
+                    )
+                )
                 // Sparse kick on beat 1
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>________"
-                    5    -> "<x>_____x_______"
-                    else -> "<x>_________"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 65, 75, noteLengthMs = 100, ticksPerBeat = 3))
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>________"
+                        5 -> "<x>_____x_______"
+                        else -> "<x>_________"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        65,
+                        75,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 3
+                    )
+                )
             }
             // ── DISCO ────────────────────────────────────────────────────────
             // Four-on-the-floor kick, open HH on & of each beat.
             Genre.DISCO -> {
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>___<x>___<x>___"
-                    5    -> "<x>___<x>___<x>___<x>___<x>___"
-                    else -> "<x>___<x>___<x>___<x>___"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 100, 105, noteLengthMs = 100, ticksPerBeat = 4))
-                val snare = parsePattern(when (b) {
-                    3    -> "____<x>_______"
-                    5    -> "____<x>_______<x>_______"
-                    else -> "____<x>_______<x>___"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 4))
-                val hhClosed = parsePattern(when (b) {
-                    3    -> "xxxxxxxxxxxx"
-                    5    -> "xxxxxxxxxxxxxxxxxxxx"
-                    else -> "xxxxxxxxxxxxxxxx"
-                })
-                events.addAll(renderVoice(hhClosed, startMs, durationMs, timeSignature, 9, 42, 55, 55, noteLengthMs = 40, ticksPerBeat = 4))
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>___<x>___<x>___"
+                        5 -> "<x>___<x>___<x>___<x>___<x>___"
+                        else -> "<x>___<x>___<x>___<x>___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        100,
+                        105,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "____<x>_______"
+                        5 -> "____<x>_______<x>_______"
+                        else -> "____<x>_______<x>___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        90,
+                        90,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val hhClosed = parsePattern(
+                    when (b) {
+                        3 -> "xxxxxxxxxxxx"
+                        5 -> "xxxxxxxxxxxxxxxxxxxx"
+                        else -> "xxxxxxxxxxxxxxxx"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hhClosed,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        55,
+                        55,
+                        noteLengthMs = 40,
+                        ticksPerBeat = 4
+                    )
+                )
                 // Open HH on & of each beat — the shimmer that defines disco
-                val hhOpen = parsePattern(when (b) {
-                    3    -> "__x___x___x_"
-                    5    -> "__x___x___x___x___x_"
-                    else -> "__x___x___x___x_"
-                })
-                events.addAll(renderVoice(hhOpen, startMs, durationMs, timeSignature, 9, 46, 82, 82, noteLengthMs = 70, ticksPerBeat = 4))
+                val hhOpen = parsePattern(
+                    when (b) {
+                        3 -> "__x___x___x_"
+                        5 -> "__x___x___x___x___x_"
+                        else -> "__x___x___x___x_"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hhOpen,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        46,
+                        82,
+                        82,
+                        noteLengthMs = 70,
+                        ticksPerBeat = 4
+                    )
+                )
             }
             // ── SKA ──────────────────────────────────────────────────────────
             // Rock placement but HH off-beats louder than downbeats.
             Genre.SKA -> {
-                val kick = parsePattern(when (b) {
-                    3    -> "<x>___________"
-                    5    -> "<x>_______x___________"
-                    else -> "<x>_______x_______"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 95, 105, noteLengthMs = 100, ticksPerBeat = 4))
-                val snare = parsePattern(when (b) {
-                    3    -> "____<x>_______"
-                    5    -> "____<x>_______<x>_______"
-                    else -> "____<x>_______<x>___"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 100, 100, noteLengthMs = 100, ticksPerBeat = 4))
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "<x>___________"
+                        5 -> "<x>_______x___________"
+                        else -> "<x>_______x_______"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        95,
+                        105,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "____<x>_______"
+                        5 -> "____<x>_______<x>_______"
+                        else -> "____<x>_______<x>___"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        100,
+                        100,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
                 // x=downbeat (normal=62), <x>=off-beat (accent=85) — inverted
-                val hihat = parsePattern(when (b) {
-                    3    -> "x_<x>_x_<x>_x_<x>_"
-                    5    -> "x_<x>_x_<x>_x_<x>_x_<x>_x_<x>_"
-                    else -> "x_<x>_x_<x>_x_<x>_x_<x>_"
-                })
-                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 62, 85, noteLengthMs = 60, ticksPerBeat = 4))
+                val hihat = parsePattern(
+                    when (b) {
+                        3 -> "x_<x>_x_<x>_x_<x>_"
+                        5 -> "x_<x>_x_<x>_x_<x>_x_<x>_x_<x>_"
+                        else -> "x_<x>_x_<x>_x_<x>_x_<x>_"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hihat,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        62,
+                        85,
+                        noteLengthMs = 60,
+                        ticksPerBeat = 4
+                    )
+                )
             }
             // ── REGGAE ───────────────────────────────────────────────────────
             // One-drop: kick+snare on beat 3 ONLY. Beat 1 is silent.
             Genre.REGGAE -> {
-                val kick = parsePattern(when (b) {
-                    3    -> "________<x>___"
-                    5    -> "________<x>___________"
-                    else -> "________<x>_______"
-                })
-                events.addAll(renderVoice(kick, startMs, durationMs, timeSignature, 9, 36, 88, 95, noteLengthMs = 100, ticksPerBeat = 4))
-                val snare = parsePattern(when (b) {
-                    3    -> "________x___"
-                    5    -> "________x___________"
-                    else -> "________x_______"
-                })
-                events.addAll(renderVoice(snare, startMs, durationMs, timeSignature, 9, 38, 90, 90, noteLengthMs = 100, ticksPerBeat = 4))
+                val kick = parsePattern(
+                    when (b) {
+                        3 -> "________<x>___"
+                        5 -> "________<x>___________"
+                        else -> "________<x>_______"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        kick,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        36,
+                        88,
+                        95,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
+                val snare = parsePattern(
+                    when (b) {
+                        3 -> "________x___"
+                        5 -> "________x___________"
+                        else -> "________x_______"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        snare,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        38,
+                        90,
+                        90,
+                        noteLengthMs = 100,
+                        ticksPerBeat = 4
+                    )
+                )
                 if (b != 3) {
-                    val ghostSnare = parsePattern(when (b) {
-                        5    -> "____________x_______"
-                        else -> "____________x___"
-                    })
-                    events.addAll(renderVoice(ghostSnare, startMs, durationMs, timeSignature, 9, 38, 50, 50, noteLengthMs = 80, ticksPerBeat = 4))
+                    val ghostSnare = parsePattern(
+                        when (b) {
+                            5 -> "____________x_______"
+                            else -> "____________x___"
+                        }
+                    )
+                    events.addAll(
+                        renderVoice(
+                            ghostSnare,
+                            startMs,
+                            durationMs,
+                            timeSignature,
+                            9,
+                            38,
+                            50,
+                            50,
+                            noteLengthMs = 80,
+                            ticksPerBeat = 4
+                        )
+                    )
                 }
                 // Off-beats only — no downbeat hats
-                val hihat = parsePattern(when (b) {
-                    3    -> "__x___x___x_"
-                    5    -> "__x___x___x___x___x_"
-                    else -> "__x___x___x___x_"
-                })
-                events.addAll(renderVoice(hihat, startMs, durationMs, timeSignature, 9, 42, 70, 70, noteLengthMs = 60, ticksPerBeat = 4))
+                val hihat = parsePattern(
+                    when (b) {
+                        3 -> "__x___x___x_"
+                        5 -> "__x___x___x___x___x_"
+                        else -> "__x___x___x___x_"
+                    }
+                )
+                events.addAll(
+                    renderVoice(
+                        hihat,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        9,
+                        42,
+                        70,
+                        70,
+                        noteLengthMs = 60,
+                        ticksPerBeat = 4
+                    )
+                )
             }
         }
         return events
@@ -412,99 +900,228 @@ object StyleEngine {
         timeSignature: TimeSignature
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val root  = findBassPitch(chord.rootPitchClass)
+        val root = findBassPitch(chord.rootPitchClass)
         val fifth = findBassPitch((chord.rootPitchClass + 7) % 12)
         when (genre) {
             Genre.COUNTRY -> {
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
-                events.addAll(renderPitchSequence(pattern, listOf(root, fifth), startMs, durationMs, timeSignature, 1, 87, 95, noteLengthMs = 400, ticksPerBeat = 1))
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        listOf(root, fifth),
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        87,
+                        95,
+                        noteLengthMs = 400,
+                        ticksPerBeat = 1
+                    )
+                )
             }
+
             Genre.BLUES -> {
                 // Boogie bass: R-R-5th-6th-b7th-6th-5th-5th (John Lee Hooker driving pattern)
-                val sixth    = findBassPitch((chord.rootPitchClass + 9) % 12)
+                val sixth = findBassPitch((chord.rootPitchClass + 9) % 12)
                 val bSeventh = findBassPitch((chord.rootPitchClass + 10) % 12)
-                val pattern  = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar * 2 - 1))
-                val pitches  = listOf(root, root, fifth, sixth, bSeventh, sixth, fifth, fifth)
-                events.addAll(renderPitchSequence(pattern, pitches, startMs, durationMs, timeSignature, 1, 75, 88, noteLengthMs = 200, ticksPerBeat = 2))
+                val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar * 2 - 1))
+                val pitches = listOf(root, root, fifth, sixth, bSeventh, sixth, fifth, fifth)
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        pitches,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        75,
+                        88,
+                        noteLengthMs = 200,
+                        ticksPerBeat = 2
+                    )
+                )
             }
+
             Genre.FUNK -> {
-                val pattern = parsePattern("x__x" + "<x>__x" + "____".repeat(timeSignature.beatsPerBar - 2))
-                events.addAll(renderPitchSequence(pattern, listOf(root, root, root + 12, fifth), startMs, durationMs, timeSignature, 1, 90, 110, noteLengthMs = 150, ticksPerBeat = 4))
+                val pattern =
+                    parsePattern("x__x" + "<x>__x" + "____".repeat(timeSignature.beatsPerBar - 2))
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        listOf(root, root, root + 12, fifth),
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        90,
+                        110,
+                        noteLengthMs = 150,
+                        ticksPerBeat = 4
+                    )
+                )
             }
+
             Genre.JAZZ -> {
-                val third   = findBassPitch((chord.rootPitchClass + chord.quality.intervals[1]) % 12)
-                val sixth   = findBassPitch((chord.rootPitchClass + 9) % 12)
+                val third = findBassPitch((chord.rootPitchClass + chord.quality.intervals[1]) % 12)
+                val sixth = findBassPitch((chord.rootPitchClass + 9) % 12)
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
-                events.addAll(renderPitchSequence(pattern, listOf(root, third, fifth, sixth), startMs, durationMs, timeSignature, 1, 85, 90, noteLengthMs = 400, ticksPerBeat = 1))
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        listOf(root, third, fifth, sixth),
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        85,
+                        90,
+                        noteLengthMs = 400,
+                        ticksPerBeat = 1
+                    )
+                )
             }
+
             Genre.ROCK -> {
                 // Alternating root-fifth, heavier touch than Country
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
-                events.addAll(renderPitchSequence(pattern, listOf(root, fifth), startMs, durationMs, timeSignature, 1, 92, 100, noteLengthMs = 400, ticksPerBeat = 1))
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        listOf(root, fifth),
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        92,
+                        100,
+                        noteLengthMs = 400,
+                        ticksPerBeat = 1
+                    )
+                )
             }
+
             Genre.DISCO -> {
                 // Pumping octave bass: alternating root / root+octave on 8th grid
-                val pitches = (0 until timeSignature.beatsPerBar).flatMap { listOf(root, root + 12) }
+                val pitches =
+                    (0 until timeSignature.beatsPerBar).flatMap { listOf(root, root + 12) }
                 val pattern = parsePattern("<x>x".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderPitchSequence(pattern, pitches, startMs, durationMs, timeSignature, 1, 75, 92, noteLengthMs = 180, ticksPerBeat = 2))
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        pitches,
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        75,
+                        92,
+                        noteLengthMs = 180,
+                        ticksPerBeat = 2
+                    )
+                )
             }
+
             Genre.SKA -> {
                 // Walking bass with octave jump: R-5th-R+oct-5th cycle
                 val pattern = parsePattern("<x>x".repeat(timeSignature.beatsPerBar))
-                events.addAll(renderPitchSequence(pattern, listOf(root, fifth, root + 12, fifth), startMs, durationMs, timeSignature, 1, 75, 87, noteLengthMs = 300, ticksPerBeat = 2))
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        listOf(root, fifth, root + 12, fifth),
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        75,
+                        87,
+                        noteLengthMs = 300,
+                        ticksPerBeat = 2
+                    )
+                )
             }
+
             Genre.REGGAE -> {
                 // One-drop bass: root beat 1, fifth beat 3, maximum space
-                val pattern = parsePattern(when (timeSignature.beatsPerBar) {
-                    3    -> "<x>_x"
-                    5    -> "<x>_x__"
-                    else -> "<x>_x_"
-                })
-                events.addAll(renderPitchSequence(pattern, listOf(root, fifth), startMs, durationMs, timeSignature, 1, 80, 87, noteLengthMs = 600, ticksPerBeat = 1))
+                val pattern = parsePattern(
+                    when (timeSignature.beatsPerBar) {
+                        3 -> "<x>_x"
+                        5 -> "<x>_x__"
+                        else -> "<x>_x_"
+                    }
+                )
+                events.addAll(
+                    renderPitchSequence(
+                        pattern,
+                        listOf(root, fifth),
+                        startMs,
+                        durationMs,
+                        timeSignature,
+                        1,
+                        80,
+                        87,
+                        noteLengthMs = 600,
+                        ticksPerBeat = 1
+                    )
+                )
             }
         }
         return events
     }
 
     // ─── GUITAR ──────────────────────────────────────────────────────────────
+    // MODIFIED made by Claude 19/08/2026 — chordType threaded through to findGuitarVoicing
+    // MODIFIED made by Claude 19/08/2026 — precomputedVoicing passed in when voice leading is on
     private fun generateGuitar(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord,
         preset: StrumPreset,
-        timeSignature: TimeSignature
+        timeSignature: TimeSignature,
+        chordType: ChordType = ChordType.FULL,
+        precomputedVoicing: List<Int>? = null
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val voicing = findGuitarVoicing(chord)
+        val voicing = precomputedVoicing ?: findGuitarVoicing(chord, chordType)
         return renderPreset(preset, voicing, startMs, durationMs, timeSignature, channel = 0)
     }
 
     // made by Gemini 27/06
+    // MODIFIED made by Claude 19/08/2026 — chordType + precomputedVoicing threaded through
     private fun generateGuitarPicking(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord,
         preset: PickingPreset,
-        timeSignature: TimeSignature
+        timeSignature: TimeSignature,
+        chordType: ChordType = ChordType.FULL,
+        precomputedVoicing: List<Int>? = null
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val voicing = findGuitarVoicing(chord)
-        val shape   = timeSignature.shape()
-        val events  = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+        val voicing = precomputedVoicing ?: findGuitarVoicing(chord, chordType)
+        val shape = timeSignature.shape()
+        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         preset.layers.forEach { layer ->
             val patternStr = layer.patternByShape[shape] ?: return@forEach
             val stringsStr = layer.stringsByShape[shape] ?: return@forEach
-            val pattern    = parsePattern(patternStr)
-            val strings    = com.example.fretboardlayouts.theory.parseStrings(stringsStr)
+            val pattern = parsePattern(patternStr)
+            val strings = com.example.fretboardlayouts.theory.parseStrings(stringsStr)
             pattern.forEachIndexed { tick, state ->
                 if (state == com.example.fretboardlayouts.theory.SlotState.REST) return@forEachIndexed
-                val velocity  = if (state == com.example.fretboardlayouts.theory.SlotState.ACCENT) layer.accentVelocity else layer.normalVelocity
+                val velocity =
+                    if (state == com.example.fretboardlayouts.theory.SlotState.ACCENT) layer.accentVelocity else layer.normalVelocity
                 val stringIdx = strings.getOrNull(tick) ?: return@forEachIndexed
                 if (stringIdx < 0 || stringIdx >= voicing.size) return@forEachIndexed
-                val pitch    = voicing[stringIdx]
-                val beat     = tick / layer.ticksPerBeat
+                val pitch = voicing[stringIdx]
+                val beat = tick / layer.ticksPerBeat
                 val tickInBeat = tick % layer.ticksPerBeat
                 events.add(
                     BackingTrackGenerator.MidiNoteEvent(
-                        startMs + com.example.fretboardlayouts.theory.beatTickToMs(beat, tickInBeat, layer.ticksPerBeat, timeSignature, durationMs),
+                        startMs + com.example.fretboardlayouts.theory.beatTickToMs(
+                            beat,
+                            tickInBeat,
+                            layer.ticksPerBeat,
+                            timeSignature,
+                            durationMs
+                        ),
                         0, pitch, velocity, 200
                     )
                 )
@@ -515,54 +1132,86 @@ object StyleEngine {
 
     // ─── PIANO ───────────────────────────────────────────────────────────────
     // made by Claude 11/07: Piano generation — comping or arpeggio based on role
+    // MODIFIED made by Claude 19/08/2026 — precomputedVoicing passed in when voice leading is on
     private fun generatePiano(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord,
         genre: Genre,
         timeSignature: TimeSignature,
-        role: InstrumentRole
+        role: InstrumentRole,
+        chordType: ChordType = ChordType.FULL,
+        precomputedVoicing: List<Int>? = null
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events     = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val chordNotes = findPianoChordNotes(chord)
-        val b          = timeSignature.beatsPerBar
-        val beatMs     = durationMs / b
+        val chordNotes = precomputedVoicing ?: findPianoChordNotes(chord, chordType)
+        val b = timeSignature.beatsPerBar
+        val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 val hits: List<Pair<Long, Int>> = when (genre) {
                     Genre.JAZZ ->
-                        listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 62) }
+                        listOf(2, 4).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs, 62) }
+
                     Genre.BLUES ->
                         (1..b).map { Pair(startMs + (it - 1) * beatMs, 70) }
+
                     Genre.FUNK ->
                         (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 75) }
+
                     Genre.COUNTRY ->
-                        listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 65) }
+                        listOf(2, 4).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs, 65) }
+
                     Genre.ROCK ->
-                        listOf(1, 3).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 70) }
+                        listOf(1, 3).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs, 70) }
+
                     Genre.DISCO ->
                         (1..b).map { Pair(startMs + (it - 1) * beatMs, 72) }
+
                     Genre.SKA ->
                         (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 68) }
+
                     Genre.REGGAE ->
-                        listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 60) }
+                        listOf(2, 4).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 60) }
                 }
                 val noteDurationMs = (beatMs * 0.9f).toInt().coerceAtLeast(80)
                 hits.forEach { (timeMs, velocity) ->
                     chordNotes.forEach { pitch ->
-                        events.add(BackingTrackGenerator.MidiNoteEvent(timeMs, 2, pitch, velocity, noteDurationMs))
+                        events.add(
+                            BackingTrackGenerator.MidiNoteEvent(
+                                timeMs,
+                                2,
+                                pitch,
+                                velocity,
+                                noteDurationMs
+                            )
+                        )
                     }
                 }
             }
+
             InstrumentRole.PICK_ARPEGGIO -> {
                 val intervalMs = beatMs / 2
                 chordNotes.forEachIndexed { i, pitch ->
                     val timeMs = startMs + (i * intervalMs)
                     if (timeMs < startMs + durationMs) {
-                        events.add(BackingTrackGenerator.MidiNoteEvent(timeMs, 2, pitch, 65, intervalMs.toInt()))
+                        events.add(
+                            BackingTrackGenerator.MidiNoteEvent(
+                                timeMs,
+                                2,
+                                pitch,
+                                65,
+                                intervalMs.toInt()
+                            )
+                        )
                     }
                 }
             }
+
             else -> {}
         }
         return events
@@ -580,36 +1229,59 @@ object StyleEngine {
         timeSignature: TimeSignature,
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val events     = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val chordNotes = findPianoChordNotes(chord)  // same C3-C4 range as piano
-        val b          = timeSignature.beatsPerBar
-        val beatMs     = durationMs / b
+        val b = timeSignature.beatsPerBar
+        val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 val hits: List<Pair<Long, Int>> = when (genre) {
-                    Genre.JAZZ   -> listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 60) }
-                    Genre.BLUES  -> (1..b).map { Pair(startMs + (it - 1) * beatMs, 65) }
-                    Genre.FUNK   -> (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 68) }
-                    Genre.REGGAE -> listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 58) }
-                    else         -> listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 62) }
+                    Genre.JAZZ -> listOf(2, 4).filter { it <= b }
+                        .map { Pair(startMs + (it - 1) * beatMs, 60) }
+
+                    Genre.BLUES -> (1..b).map { Pair(startMs + (it - 1) * beatMs, 65) }
+                    Genre.FUNK -> (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 68) }
+                    Genre.REGGAE -> listOf(2, 4).filter { it <= b }
+                        .map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 58) }
+
+                    else -> listOf(2, 4).filter { it <= b }
+                        .map { Pair(startMs + (it - 1) * beatMs, 62) }
                 }
                 // Organ sustains longer — 95% of beat vs piano's 90%
                 val noteDurationMs = (beatMs * 0.95f).toInt().coerceAtLeast(100)
                 hits.forEach { (timeMs, velocity) ->
                     chordNotes.forEach { pitch ->
-                        events.add(BackingTrackGenerator.MidiNoteEvent(timeMs, 3, pitch, velocity, noteDurationMs))
+                        events.add(
+                            BackingTrackGenerator.MidiNoteEvent(
+                                timeMs,
+                                3,
+                                pitch,
+                                velocity,
+                                noteDurationMs
+                            )
+                        )
                     }
                 }
             }
+
             InstrumentRole.PICK_ARPEGGIO -> {
                 val intervalMs = beatMs / 2
                 chordNotes.forEachIndexed { i, pitch ->
                     val timeMs = startMs + (i * intervalMs)
                     if (timeMs < startMs + durationMs) {
-                        events.add(BackingTrackGenerator.MidiNoteEvent(timeMs, 3, pitch, 62, intervalMs.toInt()))
+                        events.add(
+                            BackingTrackGenerator.MidiNoteEvent(
+                                timeMs,
+                                3,
+                                pitch,
+                                62,
+                                intervalMs.toInt()
+                            )
+                        )
                     }
                 }
             }
+
             else -> {}
         }
         return events
@@ -624,11 +1296,23 @@ object StyleEngine {
         chord: ResolvedChord
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val delayMs = 8L  // Slight delayed attack — sits behind guitar
-        val root    = findStringsPitch(chord.rootPitchClass)
-        val fifth   = findStringsPitch((chord.rootPitchClass + 7) % 12)
+        val root = findStringsPitch(chord.rootPitchClass)
+        val fifth = findStringsPitch((chord.rootPitchClass + 7) % 12)
         return listOf(
-            BackingTrackGenerator.MidiNoteEvent(startMs + delayMs, 4, root,  52, durationMs.toInt()), // MODIFIED ch3→4
-            BackingTrackGenerator.MidiNoteEvent(startMs + delayMs, 4, fifth, 48, durationMs.toInt())  // MODIFIED ch3→4
+            BackingTrackGenerator.MidiNoteEvent(
+                startMs + delayMs,
+                4,
+                root,
+                52,
+                durationMs.toInt()
+            ), // MODIFIED ch3→4
+            BackingTrackGenerator.MidiNoteEvent(
+                startMs + delayMs,
+                4,
+                fifth,
+                48,
+                durationMs.toInt()
+            )  // MODIFIED ch3→4
         )
     }
 
@@ -641,7 +1325,7 @@ object StyleEngine {
         durationMs: Long,
         chord: ResolvedChord
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val delayMs    = 15L  // Slower attack than strings — ensemble blends in gently
+        val delayMs = 15L  // Slower attack than strings — ensemble blends in gently
         val chordNotes = findPianoChordNotes(chord).take(3)  // root + third + fifth only
         return chordNotes.map { pitch ->
             BackingTrackGenerator.MidiNoteEvent(startMs + delayMs, 5, pitch, 48, durationMs.toInt())
@@ -660,47 +1344,68 @@ object StyleEngine {
         timeSignature: TimeSignature,
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val events     = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
+        val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val chordNotes = findBrassChordNotes(chord)
-        val b          = timeSignature.beatsPerBar
-        val beatMs     = durationMs / b
+        val b = timeSignature.beatsPerBar
+        val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 val hits: List<Pair<Long, Int>> = when (genre) {
                     Genre.JAZZ, Genre.BLUES ->
                         // Off-beat punches on 2&4 — classic horn section placement
-                        listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 82) }
+                        listOf(2, 4).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 82) }
+
                     Genre.FUNK ->
                         // All off-beats — tight funk horn section
                         (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 85) }
+
                     Genre.DISCO ->
                         // On-beat stabs — lock with kick
                         (1..b).map { Pair(startMs + (it - 1) * beatMs, 78) }
+
                     Genre.SKA ->
                         // Beats 1 and 3 — ska horn stab placement
-                        listOf(1, 3).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 80) }
+                        listOf(1, 3).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs, 80) }
+
                     Genre.REGGAE ->
                         // Off-beat on 2&4, sparse — reggae horns stay out of the way
-                        listOf(2, 4).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 72) }
+                        listOf(2, 4).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 72) }
+
                     else ->
-                        listOf(1, 3).filter { it <= b }.map { Pair(startMs + (it - 1) * beatMs, 78) }
+                        listOf(1, 3).filter { it <= b }
+                            .map { Pair(startMs + (it - 1) * beatMs, 78) }
                 }
                 val noteDurationMs = (beatMs * 0.4f).toInt().coerceAtLeast(60)  // staccato stabs
                 hits.forEach { (timeMs, velocity) ->
                     chordNotes.forEach { pitch ->
-                        events.add(BackingTrackGenerator.MidiNoteEvent(timeMs, 6, pitch, velocity, noteDurationMs))
+                        events.add(
+                            BackingTrackGenerator.MidiNoteEvent(
+                                timeMs,
+                                6,
+                                pitch,
+                                velocity,
+                                noteDurationMs
+                            )
+                        )
                     }
                 }
             }
+
             InstrumentRole.PICK_ARPEGGIO -> {
                 // Single-note melody on root — trumpet/trombone lead line
                 val root = findMidRangePitch(chord.rootPitchClass)
                 (0 until b).forEach { beat ->
-                    events.add(BackingTrackGenerator.MidiNoteEvent(
-                        startMs + beat * beatMs, 6, root, 75, (beatMs * 0.8f).toInt()
-                    ))
+                    events.add(
+                        BackingTrackGenerator.MidiNoteEvent(
+                            startMs + beat * beatMs, 6, root, 75, (beatMs * 0.8f).toInt()
+                        )
+                    )
                 }
             }
+
             else -> {}
         }
         return events
@@ -718,26 +1423,32 @@ object StyleEngine {
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val root   = findMidRangePitch(chord.rootPitchClass)
-        val fifth  = findMidRangePitch((chord.rootPitchClass + 7) % 12)
-        val b      = timeSignature.beatsPerBar
+        val root = findMidRangePitch(chord.rootPitchClass)
+        val fifth = findMidRangePitch((chord.rootPitchClass + 7) % 12)
+        val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 // Root held for the bar — saxophone whole note
-                events.add(BackingTrackGenerator.MidiNoteEvent(
-                    startMs, 7, root, 70, (durationMs * 0.9f).toInt()
-                ))
+                events.add(
+                    BackingTrackGenerator.MidiNoteEvent(
+                        startMs, 7, root, 70, (durationMs * 0.9f).toInt()
+                    )
+                )
             }
+
             InstrumentRole.PICK_ARPEGGIO -> {
                 // Root-fifth alternating per beat
                 (0 until b).forEach { beat ->
                     val pitch = if (beat % 2 == 0) root else fifth
-                    events.add(BackingTrackGenerator.MidiNoteEvent(
-                        startMs + beat * beatMs, 7, pitch, 68, (beatMs * 0.85f).toInt()
-                    ))
+                    events.add(
+                        BackingTrackGenerator.MidiNoteEvent(
+                            startMs + beat * beatMs, 7, pitch, 68, (beatMs * 0.85f).toInt()
+                        )
+                    )
                 }
             }
+
             else -> {}
         }
         return events
@@ -756,24 +1467,30 @@ object StyleEngine {
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         // +12 from mid range — pipes sound best up an octave (C5 range)
-        val root   = findMidRangePitch(chord.rootPitchClass) + 12
-        val b      = timeSignature.beatsPerBar
+        val root = findMidRangePitch(chord.rootPitchClass) + 12
+        val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 // Root held for the bar — gentle sustained flute note
-                events.add(BackingTrackGenerator.MidiNoteEvent(
-                    startMs, 8, root, 60, (durationMs * 0.9f).toInt()
-                ))
+                events.add(
+                    BackingTrackGenerator.MidiNoteEvent(
+                        startMs, 8, root, 60, (durationMs * 0.9f).toInt()
+                    )
+                )
             }
+
             InstrumentRole.PICK_ARPEGGIO -> {
                 // Root per beat — simple melodic line
                 (0 until b).forEach { beat ->
-                    events.add(BackingTrackGenerator.MidiNoteEvent(
-                        startMs + beat * beatMs, 8, root, 58, (beatMs * 0.85f).toInt()
-                    ))
+                    events.add(
+                        BackingTrackGenerator.MidiNoteEvent(
+                            startMs + beat * beatMs, 8, root, 58, (beatMs * 0.85f).toInt()
+                        )
+                    )
                 }
             }
+
             else -> {}
         }
         return events
@@ -807,39 +1524,70 @@ object StyleEngine {
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val root   = findMidRangePitch(chord.rootPitchClass)
-        val fifth  = findMidRangePitch((chord.rootPitchClass + 7) % 12)
-        val b      = timeSignature.beatsPerBar
+        val root = findMidRangePitch(chord.rootPitchClass)
+        val fifth = findMidRangePitch((chord.rootPitchClass + 7) % 12)
+        val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 // Root + fifth held together — open string drone
-                events.add(BackingTrackGenerator.MidiNoteEvent(startMs, 11, root,  70, (durationMs * 0.9f).toInt()))
-                events.add(BackingTrackGenerator.MidiNoteEvent(startMs, 11, fifth, 62, (durationMs * 0.9f).toInt()))
+                events.add(
+                    BackingTrackGenerator.MidiNoteEvent(
+                        startMs,
+                        11,
+                        root,
+                        70,
+                        (durationMs * 0.9f).toInt()
+                    )
+                )
+                events.add(
+                    BackingTrackGenerator.MidiNoteEvent(
+                        startMs,
+                        11,
+                        fifth,
+                        62,
+                        (durationMs * 0.9f).toInt()
+                    )
+                )
             }
+
             InstrumentRole.PICK_ARPEGGIO -> {
                 // Alternating root-fifth per beat — sitar-style plucking
                 (0 until b).forEach { beat ->
                     val pitch = if (beat % 2 == 0) root else fifth
-                    events.add(BackingTrackGenerator.MidiNoteEvent(
-                        startMs + beat * beatMs, 11, pitch, 72, (beatMs * 0.8f).toInt()
-                    ))
+                    events.add(
+                        BackingTrackGenerator.MidiNoteEvent(
+                            startMs + beat * beatMs, 11, pitch, 72, (beatMs * 0.8f).toInt()
+                        )
+                    )
                 }
             }
+
             else -> {}
         }
         return events
     }
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────
-    private fun findGuitarVoicing(chord: ResolvedChord): List<Int> {
-        val chordPcs = chord.chordTonePitchClasses.toSet()
-        return (0..5).mapNotNull { stringIndex ->
-            (0..5).map { fret -> fret to pitchClassAt(stringIndex, fret) }
-                .filter { it.second in chordPcs }
-                .minByOrNull { it.first }
-                ?.let { (fret, _) -> midiNote(stringIndex, fret) }
-        }
+    // MODIFIED made by Claude 19/08/2026 — replaced fret-search with ChordNoteBuilder.
+// Old approach searched frets 0-5 using chordTonePitchClasses (triad only).
+// New approach uses verified interval map including 7th/9th/extended tones.
+// Root placed in lower guitar register (MIDI 40-55 = low E to G string open).
+// List is ascending pitch, indexed 0..n — picking generator reads by index,
+// strum generator reads in order. Both work correctly with a variable-length list.
+    private fun findGuitarVoicing(
+        chord: ResolvedChord,
+        chordType: ChordType = ChordType.FULL
+    ): List<Int> {
+        if (chordType == ChordType.POWER) return ChordNoteBuilder.buildPowerChord(
+            ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 40)
+        )
+        // Place root on a bass string: nearest pitch class at or above low E (MIDI 40),
+        // capped at G3 (MIDI 55) so the chord doesn't start above the middle strings.
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 40)
+            .let { if (it > 55) it - 12 else it }
+        return ChordNoteBuilder.buildNotes(rootMidi, chord.quality, chordType)
+            .filter { it in 40..76 }   // keep within guitar MIDI range (low E to high e fret 12)
     }
 
     private fun findBassPitch(pitchClass: Int): Int {
@@ -875,13 +1623,18 @@ object StyleEngine {
         }.distinct()
     }
 
-    private fun findPianoChordNotes(chord: ResolvedChord): List<Int> {
-        var root = chord.rootPitchClass + 48  // C3
-        while (root < 48) root += 12
-        while (root > 60) root -= 12
-        return chord.quality.intervals.map { interval ->
-            val note = root + interval
-            if (note > 72) note - 12 else note
-        }.distinct().take(4)
+    // MODIFIED made by Claude 19/08/2026 — replaced chord.quality.intervals with
+// ChordNoteBuilder.INTERVALS which covers all 25 ChordQuality values including
+// 7th/9th/extended tones. Root placed in C3-B3 range (MIDI 48-59) for
+// mid-register piano comping. Notes capped at C5 (MIDI 72) to avoid shrillness.
+    private fun findPianoChordNotes(
+        chord: ResolvedChord,
+        chordType: ChordType = ChordType.FULL
+    ): List<Int> {
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 48)
+            .let { if (it > 59) it - 12 else it }   // stay in C3-B3 (MIDI 48-59)
+        return ChordNoteBuilder.buildNotes(rootMidi, chord.quality, chordType)
+            .map { if (it > 72) it - 12 else it }    // fold anything above C5 down an octave
+            .distinct()
     }
 }

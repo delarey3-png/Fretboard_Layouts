@@ -50,6 +50,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fretboardlayouts.PlaybackLoopJamLabHandler
 import com.example.fretboardlayouts.audio.GenreInstruments // NEW made by Claude 09/08/2026
 import com.example.fretboardlayouts.audio.JamLabAudioEngine
 import com.example.fretboardlayouts.theory.ChordOverlayMode
@@ -77,6 +79,7 @@ import kotlin.math.roundToInt
 import com.example.fretboardlayouts.theory.InstrumentRole // made by Claude 11/07
 import com.example.fretboardlayouts.theory.applyGenreChordStyle
 import kotlinx.coroutines.delay // made by Claude 08/08/2026
+import androidx.compose.foundation.clickable
 
 // ================================================================
 // TOP-LEVEL DEFINITIONS
@@ -459,6 +462,14 @@ fun JamLabScreen() {
     var currentNoteLength by remember { mutableStateOf("1/4") }
     var currentHumanisation by remember { mutableStateOf(HumanisationLevel.OFF) } // made by Claude 11/07
     var currentBarIndex by remember { mutableStateOf(0) }                      // made by Claude 11/07
+    var voiceLeadingEnabled by remember { mutableStateOf(false) } // ADDED 19/08/2026 — was referenced but never declared
+    // ── Voicing diagnostic panel (19/08/2026) ────────────────────────────────
+    // Updated every bar change by PlaybackLoopJamLabHandler via onVoicingChanged.
+    // Displayed in the collapsible 👁 panel under the Music Dashboard.
+    // NEW made by Claude 19/08/2026
+    var diagnosticChordName      by remember { mutableStateOf("") }
+    var diagnosticGuitarVoicing  by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var diagnosticPianoVoicing   by remember { mutableStateOf<List<Int>>(emptyList()) }
 
     var currentGenreChordStyle by remember(currentGenre) { // NEW made by Claude 17/08/2026
         mutableStateOf(GenreChordStyles.defaultFor(currentGenre)) // NEW
@@ -614,8 +625,42 @@ fun JamLabScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 8.dp)
+                .padding(bottom = 4.dp)
         )
+        // 👁 Voicing diagnostic panel — NEW made by Claude 19/08/2026
+        var showVoicingPanel by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Voicing Inspector",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF555577),
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (showVoicingPanel) "👁" else "👁",
+                fontSize = 16.sp,
+                color = if (showVoicingPanel) Color(0xFF90CAF9) else Color(0xFF555577),
+                modifier = Modifier
+                    .clickable { showVoicingPanel = !showVoicingPanel }
+                    .padding(4.dp)
+            )
+        }
+        if (showVoicingPanel) {
+            VoicingDiagnosticPanel(
+                chordName        = diagnosticChordName,
+                guitarVoicing    = diagnosticGuitarVoicing,
+                pianoVoicing     = diagnosticPianoVoicing,
+                modifier         = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+            )
+        }
 
         // ── Scrollable body (everything below the dashboard) ─────
         Column(
@@ -764,6 +809,24 @@ fun JamLabScreen() {
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(8.dp))
+
+// Voice leading toggle — NEW made by Claude 19/08/2026
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Voice Leading",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = voiceLeadingEnabled,
+                    onCheckedChange = { voiceLeadingEnabled = it }
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
@@ -922,7 +985,13 @@ fun JamLabScreen() {
                     pickingPreset = currentPickingPreset,
                     instrumentRoles = instrumentRoles,
                     humanisationLevel = currentHumanisation,
-                    channelVolume = currentChannelVolume,   // NEW made by Claude 09/08/2026
+                    channelVolume = currentChannelVolume,
+                    voiceLeadingEnabled = voiceLeadingEnabled,
+                    onVoicingChanged = { chordName, guitar, piano ->
+                        diagnosticChordName     = chordName
+                        diagnosticGuitarVoicing = guitar
+                        diagnosticPianoVoicing  = piano
+                    },
                     onBarChanged = { currentBarIndex = it }
                 )
             }
@@ -943,6 +1012,8 @@ private fun PlaybackLoopJamLabHandler(
     instrumentRoles: Map<String, InstrumentRole>,  // made by Claude 10/07
     humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
     channelVolume: Map<Int, Float> = emptyMap(),   // NEW made by Claude 09/08/2026
+    voiceLeadingEnabled: Boolean = false,          // NEW made by Claude 19/08/2026
+    onVoicingChanged: ((chordName: String, guitar: List<Int>, piano: List<Int>) -> Unit)? = null, // NEW made by Claude 19/08/2026
     onBarChanged: (Int) -> Unit                    // made by Claude 11/07
 ) {
     // made by Claude 10/07: Only fire MIDI events for active channels
@@ -963,11 +1034,15 @@ private fun PlaybackLoopJamLabHandler(
     // slider recomputes velocities immediately without restarting the playback loop.
     // StyleEngine's internal channelVolumeScale is applied first; user's slider
     // multiplier is applied on top as a second pass here.
+    // MODIFIED made by Claude 19/08/2026 — voiceLeadingEnabled added as remember key
+    // so toggling it mid-session regenerates events with voice-led voicings.
     val backingTrackEvents = remember(
-        timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles, channelVolume
+        timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles, channelVolume,
+        voiceLeadingEnabled
     ) {
         com.example.fretboardlayouts.audio.StyleEngine.generateAccompaniment(
-            timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles
+            timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles,
+            voiceLeadingEnabled = voiceLeadingEnabled
         ).map { event ->
             event.copy(
                 velocity = (event.velocity * (channelVolume[event.channel] ?: 1.0f))
@@ -992,6 +1067,21 @@ private fun PlaybackLoopJamLabHandler(
             if (currentBar != lastBarIndexRef[0]) {
                 lastBarIndexRef[0] = currentBar
                 onBarChanged(currentBar)
+                // NEW made by Claude 19/08/2026 — extract voicings for diagnostic panel
+                onVoicingChanged?.let { callback ->
+                    val barEvent = timeline.events.getOrNull(currentBar)
+                    if (barEvent != null) {
+                        val barStart = barEvent.startMs
+                        val barEnd   = barStart + barEvent.durationMs
+                        val guitarNotes = backingTrackEvents
+                            .filter { it.channel == 0 && it.timeMs >= barStart && it.timeMs < barEnd }
+                            .map { it.pitch }.distinct().sorted()
+                        val pianoNotes = backingTrackEvents
+                            .filter { it.channel == 2 && it.timeMs >= barStart && it.timeMs < barEnd }
+                            .map { it.pitch }.distinct().sorted()
+                        callback(barEvent.chord.name, guitarNotes, pianoNotes)
+                    }
+                }
             }
 
             if (lastSequencerLoopTime == -1L) {
@@ -1672,4 +1762,94 @@ private fun VolumeMixerPopup(
             OutlinedButton(onClick = onReset) { Text("Reset genre") }
         }
     )
+
+}
+// ================================================================
+// VOICING DIAGNOSTIC PANEL
+// NEW made by Claude 19/08/2026
+//
+// Collapsible panel showing the exact MIDI notes used for each
+// instrument in the current bar. Used to verify voice leading,
+// chord type (power/triad/full/extended), slash chords, and
+// extended chord note construction are working correctly.
+// ================================================================
+@Composable
+private fun VoicingDiagnosticPanel(
+    chordName: String,
+    guitarVoicing: List<Int>,
+    pianoVoicing: List<Int>,
+    modifier: Modifier = Modifier
+) {
+    // Converts a MIDI pitch number to note name + octave, e.g. 60 → "C4"
+    fun midiToName(midi: Int): String {
+        val names = arrayOf("C","C#","D","D#","E","F","F#","G","G#","A","A#","B")
+        return names[midi % 12] + (midi / 12 - 1)
+    }
+
+    Column(
+        modifier = modifier
+            .background(Color(0xFF0F0F1E), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Chord header
+        Text(
+            text = if (chordName.isEmpty()) "Not playing" else "Chord: $chordName",
+            fontSize = 10.sp,
+            color = Color(0xFF90CAF9),
+            fontWeight = FontWeight.Bold
+        )
+
+        // Guitar row
+        VoicingRow(
+            label   = "🎸 Guitar",
+            voicing = guitarVoicing,
+            toName  = ::midiToName
+        )
+
+        // Piano row
+        VoicingRow(
+            label   = "🎹 Piano",
+            voicing = pianoVoicing,
+            toName  = ::midiToName
+        )
+    }
+}
+
+@Composable
+private fun VoicingRow(
+    label: String,
+    voicing: List<Int>,
+    toName: (Int) -> String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 9.sp,
+            color = Color(0xFF7788AA),
+            modifier = Modifier.width(60.dp)
+        )
+        if (voicing.isEmpty()) {
+            Text(
+                text = "—",
+                fontSize = 9.sp,
+                color = Color(0xFF444466)
+            )
+        } else {
+            voicing.forEach { midi ->
+                Text(
+                    text = toName(midi),
+                    fontSize = 9.sp,
+                    color = Color(0xFFCCDDEE),
+                    modifier = Modifier
+                        .background(Color(0xFF1E1E3E), RoundedCornerShape(3.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
 }
