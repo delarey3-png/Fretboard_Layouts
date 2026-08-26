@@ -705,3 +705,26 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 - [ ] Play Store account + screenshots + app icon + description + keywords
 - [ ] Landing page + GitHub README
 - [ ] Recruit ~20 beta testers (guitar forums, Facebook groups, Reddit)
+
+Good session. Real progress today:
+
+VoiceLeadingEngine algorithm fixed — all voices now move independently
+GuitarChordLibrary wired up with 2,942 real guitar grips
+First chord seeding fixed — voice leading now starts from a library voicing
+Bad data filter added to bestVoicing()
+
+The high pitch and 7-note chords are the next thing to address. The likely causes:
+
+bestVoicing() fallback path returning high-register voicings when the bass-note filter eliminates everything
+Root doubling in the library voicings pushing note count up
+No upper ceiling check on voice-led notes after the first chord
+
+Before next session, update CLAUDE.md with today's changes so we don't lose context. Key things to capture:
+
+GuitarChordLibrary.kt created, initialized in FretboardLayoutsApplication
+Asset: voicings_compact.json (guitar), piano JSON also in assets but not yet wired
+VoiceLeadingEngine.leadTo() rewritten — nearest-PC algorithm
+generateAccompaniment() guitar and piano seeding fixed
+Still to fix: high register voicings, 7-note cap, per-genre voicing style (Rock/Pop → open/spread, Jazz → Drop 2/shell, Blues/Funk → shell/comping per Gemini research)
+
+Good work today. See you tomorrow.

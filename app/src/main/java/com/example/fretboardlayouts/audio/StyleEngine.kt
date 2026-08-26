@@ -17,6 +17,7 @@ import com.example.fretboardlayouts.theory.humaniseVelocity   // made by Claude 
 import com.example.fretboardlayouts.theory.humaniseTiming     // made by Claude 11/07
 import com.example.fretboardlayouts.theory.humaniseDuration   // made by Claude 11/07
 import com.example.fretboardlayouts.theory.GrooveType         // made by Claude 11/07
+import com.example.fretboardlayouts.theory.GuitarChordLibrary
 import com.example.fretboardlayouts.theory.grooveOffsetMs     // made by Claude 11/07
 import com.example.fretboardlayouts.theory.InstrumentRole     // made by Claude 11/07
 import com.example.fretboardlayouts.theory.VoiceLeadingEngine
@@ -121,10 +122,17 @@ object StyleEngine {
             if (guitarRole != InstrumentRole.OFF) {
                 // MODIFIED made by Claude 19/08/2026 — voice leading computes voicing once,
                 // shared by whichever guitar generator runs (strum or picking)
+                // MODIFIED made by Claude 25/08/2026 — first chord seeded from library,
+// not from VoiceLeadingEngine empty fallback. Ensures voice leading starts
+// from a guitar-realistic spread voicing rather than a closed-position triad.
                 val guitarVoicing: List<Int>? = if (voiceLeadingEnabled) {
-                    VoiceLeadingEngine.leadToGuitar(
-                        prevGuitarVoicing, chord.rootPitchClass, chord.quality
-                    ).also { prevGuitarVoicing = it }
+                    if (prevGuitarVoicing.isEmpty()) {
+                        findGuitarVoicing(chord).also { prevGuitarVoicing = it }
+                    } else {
+                        VoiceLeadingEngine.leadToGuitar(
+                            prevGuitarVoicing, chord.rootPitchClass, chord.quality
+                        ).also { prevGuitarVoicing = it }
+                    }
                 } else null
                 if (pickingPreset != null && pickingPreset.layers.isNotEmpty()
                     && guitarRole == InstrumentRole.PICK_ARPEGGIO
@@ -145,10 +153,15 @@ object StyleEngine {
                 }
             }
             if (pianoRole != InstrumentRole.OFF) {  // MODIFIED made by Claude 19/08/2026
+                // MODIFIED made by Claude 25/08/2026 — first chord seeded from findPianoChordNotes
                 val pianoVoicing: List<Int>? = if (voiceLeadingEnabled) {
-                    VoiceLeadingEngine.leadToPiano(
-                        prevPianoVoicing, chord.rootPitchClass, chord.quality
-                    ).also { prevPianoVoicing = it }
+                    if (prevPianoVoicing.isEmpty()) {
+                        findPianoChordNotes(chord).also { prevPianoVoicing = it }
+                    } else {
+                        VoiceLeadingEngine.leadToPiano(
+                            prevPianoVoicing, chord.rootPitchClass, chord.quality
+                        ).also { prevPianoVoicing = it }
+                    }
                 } else null
                 allEvents.addAll(
                     generatePiano(
@@ -1575,6 +1588,9 @@ object StyleEngine {
 // Root placed in lower guitar register (MIDI 40-55 = low E to G string open).
 // List is ascending pitch, indexed 0..n — picking generator reads by index,
 // strum generator reads in order. Both work correctly with a variable-length list.
+    // MODIFIED made by Claude 25/08/2026 — uses GuitarChordLibrary as primary source.
+// Real guitar grips replace closed-position interval stacking.
+// Fallback spread algorithm retained for TRIAD/POWER and any chord not in library.
     private fun findGuitarVoicing(
         chord: ResolvedChord,
         chordType: ChordType = ChordType.FULL
@@ -1582,12 +1598,30 @@ object StyleEngine {
         if (chordType == ChordType.POWER) return ChordNoteBuilder.buildPowerChord(
             ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 40)
         )
-        // Place root on a bass string: nearest pitch class at or above low E (MIDI 40),
-        // capped at G3 (MIDI 55) so the chord doesn't start above the middle strings.
+
+        // FULL / EXTENDED: try the real voicing library first
+        if (chordType == ChordType.FULL || chordType == ChordType.EXTENDED) {
+            val libraryVoicing = GuitarChordLibrary.bestVoicing(chord.rootPitchClass, chord.quality)
+            if (libraryVoicing != null) return libraryVoicing
+        }
+
+        // TRIAD or library miss: algorithmic spread voicing
         val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 40)
             .let { if (it > 55) it - 12 else it }
-        return ChordNoteBuilder.buildNotes(rootMidi, chord.quality, chordType)
-            .filter { it in 40..76 }   // keep within guitar MIDI range (low E to high e fret 12)
+        val pitchClasses = ChordNoteBuilder.buildNotes(0, chord.quality, chordType)
+            .map { it % 12 }
+        val notes = mutableListOf(rootMidi)
+        var cursor = maxOf(rootMidi + 7, 55)
+        for (pc in pitchClasses.drop(1)) {
+            var candidate = ChordNoteBuilder.nearestMidi(pc, cursor)
+            if (candidate < cursor) candidate += 12
+            while (candidate > cursor + 14) candidate -= 12
+            if (candidate in 40..76) {
+                notes.add(candidate)
+                cursor = candidate + 1
+            }
+        }
+        return notes.distinct().sorted().filter { it in 40..76 }
     }
 
     private fun findBassPitch(pitchClass: Int): Int {
