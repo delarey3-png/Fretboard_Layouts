@@ -94,20 +94,20 @@ object GuitarChordLibrary {
         val name     = KEY_PREFIX[rootPitchClass] + suffix
         val voicings = index[name] ?: return null
 
-        // Valid pitch classes for this chord — any note outside these is bad data
         val validPCs = (ChordNoteBuilder.INTERVALS[quality] ?: return null)
             .map { (rootPitchClass + it) % 12 }.toSet()
 
         return voicings
             .filter { notes ->
                 notes.isNotEmpty()
-                        && notes.first() in 40..55
+                        && notes.first() in 40..55   // bass note on a low string
+                        && notes.last() <= 72        // MODIFIED: cap top note at C5 — prevents shrill high voicings
                         && notes.size in 3..6
-                        && notes.all { it % 12 in validPCs }  // reject bad data
+                        && notes.all { it % 12 in validPCs }
             }
             .maxByOrNull { it.last() - it.first() }
-            ?: voicings  // fallback: relax PC check, just find closest to C3
-                .filter { it.isNotEmpty() && it.first() in 40..55 }
+            ?: voicings  // fallback: relax PC and ceiling checks, just find mid-register voicing
+                .filter { it.isNotEmpty() && it.first() in 40..55 && it.size in 3..6 }
                 .minByOrNull { Math.abs(it.first() - 48) }
     }
 }

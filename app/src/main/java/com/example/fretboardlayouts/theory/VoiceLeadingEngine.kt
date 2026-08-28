@@ -83,7 +83,12 @@ object VoiceLeadingEngine {
             }
         }
 
-        return voiceLedNotes.distinct().sorted()
+        // MODIFIED made by Claude 26/08/2026 — cap note count to match input voicing size.
+// Missing-PC insertion can push count above the original; trim highest notes to stay
+// at the same number of voices (min 3, max 6 for guitar).
+        val targetCount = sorted.size.coerceIn(3, 6)
+        val built = voiceLedNotes.distinct().sorted()
+        return if (built.size > targetCount) built.take(targetCount) else built
     }
 
     fun leadToGuitar(

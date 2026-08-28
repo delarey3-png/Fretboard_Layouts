@@ -467,9 +467,9 @@ fun JamLabScreen() {
     // Updated every bar change by PlaybackLoopJamLabHandler via onVoicingChanged.
     // Displayed in the collapsible 👁 panel under the Music Dashboard.
     // NEW made by Claude 19/08/2026
-    var diagnosticChordName      by remember { mutableStateOf("") }
-    var diagnosticGuitarVoicing  by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var diagnosticPianoVoicing   by remember { mutableStateOf<List<Int>>(emptyList()) }
+    // MODIFIED made by Claude 26/08/2026 — single map covers all instruments
+    var diagnosticChordName  by remember { mutableStateOf("") }
+    var diagnosticVoicings   by remember { mutableStateOf<Map<Int, List<Int>>>(emptyMap()) }
 
     var currentGenreChordStyle by remember(currentGenre) { // NEW made by Claude 17/08/2026
         mutableStateOf(GenreChordStyles.defaultFor(currentGenre)) // NEW
@@ -652,10 +652,9 @@ fun JamLabScreen() {
         }
         if (showVoicingPanel) {
             VoicingDiagnosticPanel(
-                chordName        = diagnosticChordName,
-                guitarVoicing    = diagnosticGuitarVoicing,
-                pianoVoicing     = diagnosticPianoVoicing,
-                modifier         = Modifier
+                chordName = diagnosticChordName,
+                voicings  = diagnosticVoicings,
+                modifier  = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 8.dp)
@@ -987,10 +986,9 @@ fun JamLabScreen() {
                     humanisationLevel = currentHumanisation,
                     channelVolume = currentChannelVolume,
                     voiceLeadingEnabled = voiceLeadingEnabled,
-                    onVoicingChanged = { chordName, guitar, piano ->
-                        diagnosticChordName     = chordName
-                        diagnosticGuitarVoicing = guitar
-                        diagnosticPianoVoicing  = piano
+                    onVoicingChanged = { chordName, voicings ->
+                        diagnosticChordName = chordName
+                        diagnosticVoicings  = voicings
                     },
                     onBarChanged = { currentBarIndex = it }
                 )
@@ -1013,7 +1011,8 @@ private fun PlaybackLoopJamLabHandler(
     humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
     channelVolume: Map<Int, Float> = emptyMap(),   // NEW made by Claude 09/08/2026
     voiceLeadingEnabled: Boolean = false,          // NEW made by Claude 19/08/2026
-    onVoicingChanged: ((chordName: String, guitar: List<Int>, piano: List<Int>) -> Unit)? = null, // NEW made by Claude 19/08/2026
+    // MODIFIED made by Claude 26/08/2026 — map covers all melodic channels
+    onVoicingChanged: ((chordName: String, voicings: Map<Int, List<Int>>) -> Unit)? = null,
     onBarChanged: (Int) -> Unit                    // made by Claude 11/07
 ) {
     // made by Claude 10/07: Only fire MIDI events for active channels
@@ -1068,18 +1067,22 @@ private fun PlaybackLoopJamLabHandler(
                 lastBarIndexRef[0] = currentBar
                 onBarChanged(currentBar)
                 // NEW made by Claude 19/08/2026 — extract voicings for diagnostic panel
+                // MODIFIED made by Claude 26/08/2026 — extract all melodic channels (skip drums ch9)
                 onVoicingChanged?.let { callback ->
                     val barEvent = timeline.events.getOrNull(currentBar)
                     if (barEvent != null) {
                         val barStart = barEvent.startMs
                         val barEnd   = barStart + barEvent.durationMs
-                        val guitarNotes = backingTrackEvents
-                            .filter { it.channel == 0 && it.timeMs >= barStart && it.timeMs < barEnd }
-                            .map { it.pitch }.distinct().sorted()
-                        val pianoNotes = backingTrackEvents
-                            .filter { it.channel == 2 && it.timeMs >= barStart && it.timeMs < barEnd }
-                            .map { it.pitch }.distinct().sorted()
-                        callback(barEvent.chord.name, guitarNotes, pianoNotes)
+                        val voicings = listOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11)
+                            .associateWith { ch ->
+                                backingTrackEvents
+                                    .filter { it.channel == ch
+                                            && it.timeMs >= barStart
+                                            && it.timeMs < barEnd }
+                                    .map { it.pitch }.distinct().sorted()
+                            }
+                            .filter { it.value.isNotEmpty() }
+                        callback(barEvent.chord.name, voicings)
                     }
                 }
             }
@@ -1269,14 +1272,17 @@ private fun InstrumentRoleMatrix(
     //   - SF2_ONLY_INSTRUMENTS: visible only if the loaded SF2 has patches for them
     //   - All others: visible if the genre includes them, AND (SF2 has patches OR we're
     //     in fallback mode — availablePatches empty means SF2 returned nothing)
+    // MODIFIED made by Claude 26/08/2026 — removed genre-based row hiding.
+// All instruments always visible. SF2_ONLY_INSTRUMENTS (synth, ensemble)
+// still self-hide when the loaded SF2 has no patches for them.
+// Genre-based defaults (which instruments are ON by default per genre)
+// will be a separate feature once ranges and voicings are confirmed.
     val isInFallbackMode = availablePatches.isEmpty()
-    val genreVisible = genreInstrumentVisibility[genre]
-        ?: INSTRUMENT_DEFS.map { it.key }.toSet()
     val visibleDefs = INSTRUMENT_DEFS.filter { def ->
         val hasSF2Patches = availablePatches[def.key]?.isNotEmpty() == true
         when (def.key) {
             in SF2_ONLY_INSTRUMENTS -> hasSF2Patches
-            else -> def.key in genreVisible && (isInFallbackMode || hasSF2Patches)
+            else -> isInFallbackMode || hasSF2Patches
         }
     }
 
@@ -1773,18 +1779,31 @@ private fun VolumeMixerPopup(
 // chord type (power/triad/full/extended), slash chords, and
 // extended chord note construction are working correctly.
 // ================================================================
+// MODIFIED made by Claude 26/08/2026 — shows all active melodic channels
 @Composable
 private fun VoicingDiagnosticPanel(
     chordName: String,
-    guitarVoicing: List<Int>,
-    pianoVoicing: List<Int>,
+    voicings: Map<Int, List<Int>>,
     modifier: Modifier = Modifier
 ) {
-    // Converts a MIDI pitch number to note name + octave, e.g. 60 → "C4"
     fun midiToName(midi: Int): String {
         val names = arrayOf("C","C#","D","D#","E","F","F#","G","G#","A","A#","B")
         return names[midi % 12] + (midi / 12 - 1)
     }
+
+    val channelLabels = mapOf(
+        0  to "🎸 Guitar",
+        1  to "🎸 Bass",
+        2  to "🎹 Piano",
+        3  to "🎹 Organ",
+        4  to "🎻 Strings",
+        5  to "🎼 Ensemble",
+        6  to "🎺 Brass",
+        7  to "🎷 Reed",
+        8  to "🪈 Pipe",
+        10 to "🎛 Synth",
+        11 to "🪕 Ethnic"
+    )
 
     Column(
         modifier = modifier
@@ -1792,27 +1811,25 @@ private fun VoicingDiagnosticPanel(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // Chord header
         Text(
             text = if (chordName.isEmpty()) "Not playing" else "Chord: $chordName",
             fontSize = 10.sp,
             color = Color(0xFF90CAF9),
             fontWeight = FontWeight.Bold
         )
-
-        // Guitar row
-        VoicingRow(
-            label   = "🎸 Guitar",
-            voicing = guitarVoicing,
-            toName  = ::midiToName
-        )
-
-        // Piano row
-        VoicingRow(
-            label   = "🎹 Piano",
-            voicing = pianoVoicing,
-            toName  = ::midiToName
-        )
+        if (voicings.isEmpty()) {
+            Text("—", fontSize = 9.sp, color = Color(0xFF444466))
+        } else {
+            channelLabels.entries
+                .filter { it.key in voicings }
+                .forEach { (ch, label) ->
+                    VoicingRow(
+                        label   = label,
+                        voicing = voicings[ch] ?: emptyList(),
+                        toName  = ::midiToName
+                    )
+                }
+        }
     }
 }
 
