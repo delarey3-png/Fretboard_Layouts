@@ -905,6 +905,9 @@ object StyleEngine {
     }
 
     // ─── BASS ────────────────────────────────────────────────────────────────
+    // MODIFIED made by Claude 26/08/2026 — all non-root notes now use interval
+// offsets from root instead of independent findBassPitch() lookups.
+// Independent lookups could place fifth/sixth/third below the root.
     private fun generateBass(
         startMs: Long,
         durationMs: Long,
@@ -913,124 +916,82 @@ object StyleEngine {
         timeSignature: TimeSignature
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val root = findBassPitch(chord.rootPitchClass)
-        val fifth = findBassPitch((chord.rootPitchClass + 7) % 12)
+        val root  = findBassPitch(chord.rootPitchClass)
+        val fifth = root + 7   // always above root
         when (genre) {
             Genre.COUNTRY -> {
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        listOf(root, fifth),
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        87,
-                        95,
-                        noteLengthMs = 400,
-                        ticksPerBeat = 1
+                        pattern, listOf(root, fifth),
+                        startMs, durationMs, timeSignature,
+                        1, 87, 95, noteLengthMs = 400, ticksPerBeat = 1
                     )
                 )
             }
 
             Genre.BLUES -> {
                 // Boogie bass: R-R-5th-6th-b7th-6th-5th-5th (John Lee Hooker driving pattern)
-                val sixth = findBassPitch((chord.rootPitchClass + 9) % 12)
-                val bSeventh = findBassPitch((chord.rootPitchClass + 10) % 12)
+                val sixth    = root + 9   // MODIFIED: interval-based
+                val bSeventh = root + 10  // MODIFIED: interval-based
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar * 2 - 1))
                 val pitches = listOf(root, root, fifth, sixth, bSeventh, sixth, fifth, fifth)
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        pitches,
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        75,
-                        88,
-                        noteLengthMs = 200,
-                        ticksPerBeat = 2
+                        pattern, pitches,
+                        startMs, durationMs, timeSignature,
+                        1, 75, 88, noteLengthMs = 200, ticksPerBeat = 2
                     )
                 )
             }
 
             Genre.FUNK -> {
-                val pattern =
-                    parsePattern("x__x" + "<x>__x" + "____".repeat(timeSignature.beatsPerBar - 2))
+                val pattern = parsePattern(
+                    "x__x" + "<x>__x" + "____".repeat(timeSignature.beatsPerBar - 2)
+                )
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        listOf(root, root, root + 12, fifth),
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        90,
-                        110,
-                        noteLengthMs = 150,
-                        ticksPerBeat = 4
+                        pattern, listOf(root, root, root + 12, fifth),
+                        startMs, durationMs, timeSignature,
+                        1, 90, 110, noteLengthMs = 150, ticksPerBeat = 4
                     )
                 )
             }
 
             Genre.JAZZ -> {
-                val third = findBassPitch((chord.rootPitchClass + chord.quality.intervals[1]) % 12)
-                val sixth = findBassPitch((chord.rootPitchClass + 9) % 12)
+                // Walking bass: root-third-fifth-sixth
+                val third = root + chord.quality.intervals.getOrElse(1) { 4 }  // MODIFIED: interval-based
+                val sixth = root + 9                                             // MODIFIED: interval-based
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        listOf(root, third, fifth, sixth),
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        85,
-                        90,
-                        noteLengthMs = 400,
-                        ticksPerBeat = 1
+                        pattern, listOf(root, third, fifth, sixth),
+                        startMs, durationMs, timeSignature,
+                        1, 85, 90, noteLengthMs = 400, ticksPerBeat = 1
                     )
                 )
             }
 
             Genre.ROCK -> {
-                // Alternating root-fifth, heavier touch than Country
                 val pattern = parsePattern("<x>" + "x".repeat(timeSignature.beatsPerBar - 1))
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        listOf(root, fifth),
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        92,
-                        100,
-                        noteLengthMs = 400,
-                        ticksPerBeat = 1
+                        pattern, listOf(root, fifth),
+                        startMs, durationMs, timeSignature,
+                        1, 92, 100, noteLengthMs = 400, ticksPerBeat = 1
                     )
                 )
             }
 
             Genre.DISCO -> {
-                // Pumping octave bass: alternating root / root+octave on 8th grid
-                val pitches =
-                    (0 until timeSignature.beatsPerBar).flatMap { listOf(root, root + 12) }
+                // Pumping octave bass: root / root+octave on 8th grid
+                val pitches = (0 until timeSignature.beatsPerBar).flatMap { listOf(root, root + 12) }
                 val pattern = parsePattern("<x>x".repeat(timeSignature.beatsPerBar))
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        pitches,
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        75,
-                        92,
-                        noteLengthMs = 180,
-                        ticksPerBeat = 2
+                        pattern, pitches,
+                        startMs, durationMs, timeSignature,
+                        1, 75, 92, noteLengthMs = 180, ticksPerBeat = 2
                     )
                 )
             }
@@ -1040,16 +1001,9 @@ object StyleEngine {
                 val pattern = parsePattern("<x>x".repeat(timeSignature.beatsPerBar))
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        listOf(root, fifth, root + 12, fifth),
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        75,
-                        87,
-                        noteLengthMs = 300,
-                        ticksPerBeat = 2
+                        pattern, listOf(root, fifth, root + 12, fifth),
+                        startMs, durationMs, timeSignature,
+                        1, 75, 87, noteLengthMs = 300, ticksPerBeat = 2
                     )
                 )
             }
@@ -1058,23 +1012,16 @@ object StyleEngine {
                 // One-drop bass: root beat 1, fifth beat 3, maximum space
                 val pattern = parsePattern(
                     when (timeSignature.beatsPerBar) {
-                        3 -> "<x>_x"
-                        5 -> "<x>_x__"
+                        3    -> "<x>_x"
+                        5    -> "<x>_x__"
                         else -> "<x>_x_"
                     }
                 )
                 events.addAll(
                     renderPitchSequence(
-                        pattern,
-                        listOf(root, fifth),
-                        startMs,
-                        durationMs,
-                        timeSignature,
-                        1,
-                        80,
-                        87,
-                        noteLengthMs = 600,
-                        ticksPerBeat = 1
+                        pattern, listOf(root, fifth),
+                        startMs, durationMs, timeSignature,
+                        1, 80, 87, noteLengthMs = 600, ticksPerBeat = 1
                     )
                 )
             }
@@ -1234,6 +1181,10 @@ object StyleEngine {
     // NEW made by Claude 09/08/2026
     // Channel 3. Genre-aware comping with organ character (sustained, full chord).
     // Visible for: Jazz, Blues, Funk, Reggae (per genreInstrumentVisibility).
+    // MODIFIED made by Claude 26/08/2026 — was using findPianoChordNotes() which gave
+    // identical notes to piano. Organ now sits a 5th higher (root G3-E4) with shell
+    // voicing (root+3rd+7th), distinctly different from piano's fuller C3-B3 voicing.
+
     private fun generateOrgan(
         startMs: Long,
         durationMs: Long,
@@ -1243,34 +1194,40 @@ object StyleEngine {
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val chordNotes = findPianoChordNotes(chord)  // same C3-C4 range as piano
+
+        // Shell voicing: root + 3rd + 7th (or 5th for triads). Sits above piano.
+        // MODIFIED made by Claude 26/08/2026 — reference raised from 55(G3) to 60(C4)
+        // so organ root lands in C4-B4, a full octave above piano's C3-B3 root range.
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 60)
+            .let { if (it > 71) it - 12 else it }   // root in C4–B4
+        val intervals = ChordNoteBuilder.intervalsFor(chord.quality, ChordType.FULL)
+        val shellNotes = listOfNotNull(
+            intervals.getOrNull(0),   // root
+            intervals.getOrNull(1),   // 3rd (or 2nd/4th for sus)
+            intervals.lastOrNull()    // 7th if extended, 5th if triad
+        ).map { (rootMidi + it).coerceIn(52, 76) }.distinct()   // E3–E5
+
         val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
+
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
                 val hits: List<Pair<Long, Int>> = when (genre) {
-                    Genre.JAZZ -> listOf(2, 4).filter { it <= b }
+                    Genre.JAZZ    -> listOf(2, 4).filter { it <= b }
                         .map { Pair(startMs + (it - 1) * beatMs, 60) }
-
-                    Genre.BLUES -> (1..b).map { Pair(startMs + (it - 1) * beatMs, 65) }
-                    Genre.FUNK -> (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 68) }
-                    Genre.REGGAE -> listOf(2, 4).filter { it <= b }
+                    Genre.BLUES   -> (1..b).map { Pair(startMs + (it - 1) * beatMs, 65) }
+                    Genre.FUNK    -> (1..b).map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 68) }
+                    Genre.REGGAE  -> listOf(2, 4).filter { it <= b }
                         .map { Pair(startMs + (it - 1) * beatMs + beatMs / 2, 58) }
-
-                    else -> listOf(2, 4).filter { it <= b }
+                    else          -> listOf(2, 4).filter { it <= b }
                         .map { Pair(startMs + (it - 1) * beatMs, 62) }
                 }
-                // Organ sustains longer — 95% of beat vs piano's 90%
                 val noteDurationMs = (beatMs * 0.95f).toInt().coerceAtLeast(100)
                 hits.forEach { (timeMs, velocity) ->
-                    chordNotes.forEach { pitch ->
+                    shellNotes.forEach { pitch ->
                         events.add(
                             BackingTrackGenerator.MidiNoteEvent(
-                                timeMs,
-                                3,
-                                pitch,
-                                velocity,
-                                noteDurationMs
+                                timeMs, 3, pitch, velocity, noteDurationMs
                             )
                         )
                     }
@@ -1279,16 +1236,12 @@ object StyleEngine {
 
             InstrumentRole.PICK_ARPEGGIO -> {
                 val intervalMs = beatMs / 2
-                chordNotes.forEachIndexed { i, pitch ->
+                shellNotes.forEachIndexed { i, pitch ->
                     val timeMs = startMs + (i * intervalMs)
                     if (timeMs < startMs + durationMs) {
                         events.add(
                             BackingTrackGenerator.MidiNoteEvent(
-                                timeMs,
-                                3,
-                                pitch,
-                                62,
-                                intervalMs.toInt()
+                                timeMs, 3, pitch, 62, intervalMs.toInt()
                             )
                         )
                     }
@@ -1303,45 +1256,48 @@ object StyleEngine {
     // ─── STRINGS ─────────────────────────────────────────────────────────────
     // made by Claude 11/07: Strings — sustained pad underneath, root + fifth
     // MODIFIED made by Claude 09/08/2026: channel 3 → 4 (Organ now occupies ch3)
+    // MODIFIED made by Claude 26/08/2026 — fifth now interval-based (root+7) so it
+    // always sits above root. Added third for a three-voice string pad.
     private fun generateStrings(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val delayMs = 8L  // Slight delayed attack — sits behind guitar
-        val root = findStringsPitch(chord.rootPitchClass)
-        val fifth = findStringsPitch((chord.rootPitchClass + 7) % 12)
-        return listOf(
+        val delayMs = 8L
+        val root  = findStringsPitch(chord.rootPitchClass)
+        val third = root + chord.quality.intervals.getOrElse(1) { 4 }
+        val fifth = root + 7
+        return listOf(root, third, fifth).map { pitch ->
             BackingTrackGenerator.MidiNoteEvent(
-                startMs + delayMs,
-                4,
-                root,
-                52,
-                durationMs.toInt()
-            ), // MODIFIED ch3→4
-            BackingTrackGenerator.MidiNoteEvent(
-                startMs + delayMs,
-                4,
-                fifth,
-                48,
-                durationMs.toInt()
-            )  // MODIFIED ch3→4
-        )
+                startMs + delayMs, 4,
+                pitch.coerceIn(57, 76),  // clamp each note to A3-E5
+                50, durationMs.toInt()
+            )
+        }
     }
 
     // ─── ENSEMBLE ────────────────────────────────────────────────────────────
     // NEW made by Claude 09/08/2026
     // Channel 5. Sustained string ensemble pad — fuller than strings (root+third+fifth).
     // Not genre-aware — pads are universal. Slightly slower attack than strings.
+    // MODIFIED made by Claude 26/08/2026 — was using findPianoChordNotes() which put
+// ensemble in the same register as piano (48-65). Ensemble is a high pad — it
+// sits above strings (57-76), filling the upper register.
     private fun generateEnsemble(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val delayMs = 15L  // Slower attack than strings — ensemble blends in gently
-        val chordNotes = findPianoChordNotes(chord).take(3)  // root + third + fifth only
-        return chordNotes.map { pitch ->
-            BackingTrackGenerator.MidiNoteEvent(startMs + delayMs, 5, pitch, 48, durationMs.toInt())
+        val delayMs = 15L
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 64)
+            .let { if (it > 71) it - 12 else it }   // root in E4–B4
+        val notes = ChordNoteBuilder.buildNotes(rootMidi, chord.quality, ChordType.TRIAD)
+            .map { it.coerceIn(60, 79) }
+            .distinct()
+        return notes.map { pitch ->
+            BackingTrackGenerator.MidiNoteEvent(
+                startMs + delayMs, 5, pitch, 45, durationMs.toInt()
+            )
         }
     }
 
@@ -1624,17 +1580,21 @@ object StyleEngine {
         return notes.distinct().sorted().filter { it in 40..76 }
     }
 
+    // MODIFIED made by Claude 26/08/2026 — base corrected from 28 (E1) to 24 (C1).
+    // pitchClass 0 = C, so C1(24) is the correct base, not E1(28).
     private fun findBassPitch(pitchClass: Int): Int {
-        var pitch = 28 + pitchClass
-        while (pitch < 28) pitch += 12
-        while (pitch > 40) pitch -= 12
+        var pitch = 24 + pitchClass
+        while (pitch < 28) pitch += 12   // floor: E1 (lowest bass string)
+        while (pitch > 40) pitch -= 12   // ceiling: keep root in E1–E2 range
         return pitch
     }
 
+    // MODIFIED made by Claude 26/08/2026 — raised from C3 base (48) to C4 base (60).
+    // Strings must sit above piano (48-65), not inside it.
     private fun findStringsPitch(pitchClass: Int): Int {
-        var pitch = 48 + pitchClass  // C3
-        while (pitch < 48) pitch += 12
-        while (pitch > 60) pitch -= 12
+        var pitch = 60 + pitchClass  // C4 base
+        while (pitch < 57) pitch += 12   // floor: A3
+        while (pitch > 72) pitch -= 12   // ceiling: C5
         return pitch
     }
 
