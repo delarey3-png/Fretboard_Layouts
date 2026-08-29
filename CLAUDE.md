@@ -728,3 +728,37 @@ generateAccompaniment() guitar and piano seeding fixed
 Still to fix: high register voicings, 7-note cap, per-genre voicing style (Rock/Pop → open/spread, Jazz → Drop 2/shell, Blues/Funk → shell/comping per Gemini research)
 
 Good work today. See you tomorrow.
+
+Session 29/08/2026 — Instrument Range Audit
+
+Files changed: VoiceLeadingEngine.kt, GuitarChordLibrary.kt, StyleEngine.kt, JamLabActivity.kt, FretboardLayoutsApplication.kt
+
+Completed:
+
+VoiceLeadingEngine.leadTo() rewritten — nearest-PC algorithm replaces index-based mapping. All voices now move independently to closest chord tone.
+GuitarChordLibrary.kt created — loads voicings_compact.json (2,942 real guitar grips) from assets. Initialized in FretboardLayoutsApplication.onCreate(). Piano JSON in assets but not yet wired.
+findGuitarVoicing() updated — library lookup first, algorithmic spread voicing as fallback.
+generateAccompaniment() — first chord seeded from findGuitarVoicing() / findPianoChordNotes() before voice leading takes over.
+findBassPitch() base corrected from 28 (E1) to 24 (C1) — bass was playing wrong key entirely.
+generateBass() — all non-root pitches (fifth, sixth, b7th, third) now interval-based from root instead of independent findBassPitch() lookups.
+findStringsPitch() raised from C3 base to C4 base — strings now sit above piano.
+generateStrings() — third voice added, fifth now interval-based.
+generateEnsemble() — now a 2-note open-fifth pad rooted at C5+, clearly above strings.
+generateOrgan() — shell voicing using intervals.take(4), root in C4–B4, fold replaces clamp.
+findBrassChordNotes() — root narrowed to C4–G4, fold replaces clamp, FULL voicing (4 notes) replaces TRIAD so b7th is included on 7th chords.
+generateReed(), generateEthnic() — fifth now interval-based.
+generateSynth() — moved from findPianoChordNotes() to G3–E4 range.
+Voicing inspector expanded to all melodic channels (0–8, 10, 11).
+Genre-based instrument row hiding removed — all rows always visible, SF2-only instruments unchanged.
+Confirmed ranges after audit:
+Bass 29–43, Guitar 41–72, Piano 48–65, Organ 60–72, Strings 60–76, Ensemble 72–88 (pad), Brass 52–72, Reed single note C4 range, Ethnic 60–74.
+
+Still to do:
+
+Voicing density settings: triad / tetrad / full per instrument
+Register settings: low / mid / high per instrument
+Per-genre mixer defaults (values still being finalised)
+Wire piano voicings JSON
+V7 display bug in Music Dashboard
+Split JamLabActivity.kt (now ~1,900+ lines)
+

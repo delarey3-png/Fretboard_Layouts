@@ -1201,11 +1201,13 @@ object StyleEngine {
         val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 60)
             .let { if (it > 71) it - 12 else it }   // root in C4–B4
         val intervals = ChordNoteBuilder.intervalsFor(chord.quality, ChordType.FULL)
-        val shellNotes = listOfNotNull(
-            intervals.getOrNull(0),   // root
-            intervals.getOrNull(1),   // 3rd (or 2nd/4th for sus)
-            intervals.lastOrNull()    // 7th if extended, 5th if triad
-        ).map { (rootMidi + it).coerceIn(52, 76) }.distinct()   // E3–E5
+        // MODIFIED made by Claude 26/08/2026 — full voicing (all tones up to 4 notes)
+        // instead of shell voicing. Shell was omitting the 5th on 7th chords.
+        val shellNotes = intervals.take(4).map { interval ->
+            var note = rootMidi + interval
+            while (note > 72) note -= 12
+            note.coerceAtLeast(52)
+        }.distinct()
 
         val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
@@ -1281,24 +1283,26 @@ object StyleEngine {
     // Channel 5. Sustained string ensemble pad — fuller than strings (root+third+fifth).
     // Not genre-aware — pads are universal. Slightly slower attack than strings.
     // MODIFIED made by Claude 26/08/2026 — was using findPianoChordNotes() which put
-// ensemble in the same register as piano (48-65). Ensemble is a high pad — it
-// sits above strings (57-76), filling the upper register.
+    // ensemble in the same register as piano (48-65). Ensemble is a high pad — it
+    // sits above strings (57-76), filling the upper register.
+    // MODIFIED made by Claude 26/08/2026 — was a full triad identical to strings.
+    // Ensemble is now a 2-note open-fifth sustained pad rooted at C5+,
+    // clearly above strings (C4-E5). Low velocity — atmospheric background layer.
     private fun generateEnsemble(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val delayMs = 15L
-        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 64)
-            .let { if (it > 71) it - 12 else it }   // root in E4–B4
-        val notes = ChordNoteBuilder.buildNotes(rootMidi, chord.quality, ChordType.TRIAD)
-            .map { it.coerceIn(60, 79) }
-            .distinct()
-        return notes.map { pitch ->
-            BackingTrackGenerator.MidiNoteEvent(
-                startMs + delayMs, 5, pitch, 45, durationMs.toInt()
-            )
-        }
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 72)
+        val fifth    = rootMidi + 7
+        return listOf(rootMidi, fifth)
+            .filter { it in 67..88 }
+            .map { pitch ->
+                BackingTrackGenerator.MidiNoteEvent(
+                    startMs + delayMs, 5, pitch, 40, durationMs.toInt()
+                )
+            }
     }
 
     // ─── BRASS ───────────────────────────────────────────────────────────────
@@ -1392,8 +1396,10 @@ object StyleEngine {
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val root = findMidRangePitch(chord.rootPitchClass)
-        val fifth = findMidRangePitch((chord.rootPitchClass + 7) % 12)
+    // MODIFIED made by Claude 26/08/2026 — fifth is interval-based from root.
+    // Independent lookup could place fifth below root.
+        val root  = findMidRangePitch(chord.rootPitchClass)
+        val fifth = (root + 7).let { if (it > 76) it - 12 else it }
         val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
         when (role) {
@@ -1470,12 +1476,18 @@ object StyleEngine {
     // Channel 10. Sustained pad — chord tones for full duration.
     // Not genre-aware. SF2-aware only — only visible if font has synth patches.
     // Sits very low in the mix (channelVolumeScale = 0.65).
+    // MODIFIED made by Claude 26/08/2026 — was using findPianoChordNotes() giving
+    // identical notes to piano. Synth pad now sits in G3–E4 range (55–64) as a
+    // low atmospheric layer, triad only, between piano and organ.
     private fun generateSynth(
         startMs: Long,
         durationMs: Long,
         chord: ResolvedChord
     ): List<BackingTrackGenerator.MidiNoteEvent> {
-        val chordNotes = findPianoChordNotes(chord)
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 55)
+            .let { if (it > 64) it - 12 else it }   // root in G3–E4
+        val chordNotes = ChordNoteBuilder.buildNotes(rootMidi, chord.quality, ChordType.TRIAD)
+            .map { it.coerceIn(52, 69) }
         return chordNotes.map { pitch ->
             BackingTrackGenerator.MidiNoteEvent(startMs, 10, pitch, 45, durationMs.toInt())
         }
@@ -1485,6 +1497,8 @@ object StyleEngine {
     // NEW made by Claude 09/08/2026
     // Channel 11. Root + fifth alternating — works for sitar, banjo, koto.
     // STRUM_CHORD: root+fifth drone. PICK_ARPEGGIO: alternating per beat.
+    // MODIFIED made by Claude 26/08/2026 — fifth is now interval-based (root+7).
+    // Independent findMidRangePitch() lookup could place fifth below root.
     private fun generateEthnic(
         startMs: Long,
         durationMs: Long,
@@ -1493,45 +1507,27 @@ object StyleEngine {
         role: InstrumentRole
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val events = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
-        val root = findMidRangePitch(chord.rootPitchClass)
-        val fifth = findMidRangePitch((chord.rootPitchClass + 7) % 12)
+        val root  = findMidRangePitch(chord.rootPitchClass)
+        val fifth = (root + 7).let { if (it > 76) it - 12 else it }
         val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
         when (role) {
             InstrumentRole.STRUM_CHORD -> {
-                // Root + fifth held together — open string drone
-                events.add(
-                    BackingTrackGenerator.MidiNoteEvent(
-                        startMs,
-                        11,
-                        root,
-                        70,
-                        (durationMs * 0.9f).toInt()
-                    )
-                )
-                events.add(
-                    BackingTrackGenerator.MidiNoteEvent(
-                        startMs,
-                        11,
-                        fifth,
-                        62,
-                        (durationMs * 0.9f).toInt()
-                    )
-                )
+                events.add(BackingTrackGenerator.MidiNoteEvent(
+                    startMs, 11, root,  70, (durationMs * 0.9f).toInt()
+                ))
+                events.add(BackingTrackGenerator.MidiNoteEvent(
+                    startMs, 11, fifth, 62, (durationMs * 0.9f).toInt()
+                ))
             }
-
             InstrumentRole.PICK_ARPEGGIO -> {
-                // Alternating root-fifth per beat — sitar-style plucking
                 (0 until b).forEach { beat ->
                     val pitch = if (beat % 2 == 0) root else fifth
-                    events.add(
-                        BackingTrackGenerator.MidiNoteEvent(
-                            startMs + beat * beatMs, 11, pitch, 72, (beatMs * 0.8f).toInt()
-                        )
-                    )
+                    events.add(BackingTrackGenerator.MidiNoteEvent(
+                        startMs + beat * beatMs, 11, pitch, 72, (beatMs * 0.8f).toInt()
+                    ))
                 }
             }
-
             else -> {}
         }
         return events
@@ -1607,13 +1603,18 @@ object StyleEngine {
     }
 
     // NEW made by Claude 09/08/2026 — brass section chord voicing, mid range
+    // MODIFIED made by Claude 26/08/2026 — root range narrowed from C4-C5 (60-72) to
+    // C4-G4 (60-67) so chord tones don't climb above C5. Fold replaces clamp — clamp
+    // was producing wrong pitch classes at the ceiling.
     private fun findBrassChordNotes(chord: ResolvedChord): List<Int> {
-        var root = chord.rootPitchClass + 60  // C4
-        while (root < 60) root += 12
-        while (root > 72) root -= 12
-        return chord.quality.intervals.take(3).map { interval ->
-            val note = root + interval
-            if (note > 76) note - 12 else note
+        val root = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 60)
+            .let { if (it > 67) it - 12 else it }   // root in C4–G4
+        // MODIFIED made by Claude 26/08/2026 — TRIAD was dropping b7th on 7th chords.
+        // FULL gives up to 4 intervals so G7 brass gets G,B,D,F not just G,B,D.
+        return ChordNoteBuilder.intervalsFor(chord.quality, ChordType.FULL).take(4).map { interval ->
+            var note = root + interval
+            while (note > 72) note -= 12   // fold above C5, preserve pitch class
+            note.coerceAtLeast(52)
         }.distinct()
     }
 
