@@ -784,3 +784,27 @@ Asset: voicings_compact_piano.json (412 entries)
 effectiveRomanLabel on ChordSlot — V7 display bug fixed
 findPianoChordNotes() now uses library as primary path
 Piano inversion cycling planned (round-robin next session)
+
+quick question, the chord density can be done on piano as well, right? I mean the 6 or 7 notes being played on guitar at the moment sometimes, is more relevant for a piano with left and right hand playing. if density set tight on guitar, say only 3 note triad, and wide on piano, a fulll 7 note accompaniment could be played.
+
+Absolutely — and it's actually more musically correct that way.
+
+Guitar is physically limited to 6 strings, and dense voicings above 5 notes start sounding muddy with distortion or heavy strumming. Tight triads or 4-note shells suit guitar well.
+
+Piano has no such constraint — left hand can hold a wide bass interval while right hand spreads a full 5-7 note voicing across two octaves. A 7-note chord on piano sounds rich; the same on guitar sounds like a car crash.
+
+So the density setting should be per instrument, not global. Exactly like volume is per channel.
+
+The UI implication: instead of one density dropdown, each instrument row in Jam Lab gets its own density selector — same pattern as the existing role selector (Off / Strum / Pick / Hybrid). Something like:
+
+Guitar:  [Triad ▼]    Piano: [Full ▼]
+Options per instrument:
+
+Power — root + fifth only (guitar mainly)
+Triad — 3 notes
+Tetrad — 4 notes (7th chords)
+Full — all chord tones the quality defines
+Auto — instrument-appropriate default (guitar=triad/tetrad, piano=full)
+Auto is probably the right default so it sounds good out of the box without the user needing to understand the difference.
+
+Good thinking — note this in CLAUDE.md before you push so it's captured for next session.
