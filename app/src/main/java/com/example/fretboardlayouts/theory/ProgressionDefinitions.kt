@@ -17,6 +17,42 @@ data class ChordSlot(
 ) {
     // Three-tier priority: user's explicit pick > genre style > base quality from progression // MODIFIED
     val effectiveQuality: ChordQuality get() = userQualityOverride ?: genreQualityOverride ?: quality // MODIFIED
+    // Numeral label that reflects effectiveQuality suffix (e.g. V→V7 when genre override adds dominant7) // NEW made by Claude 01/09/2026
+    val effectiveRomanLabel: String get() {
+        if (userQualityOverride == null && genreQualityOverride == null) return romanLabel
+        val base = romanLabel
+            .replace("maj9", "").replace("maj7", "")
+            .replace("mMaj7", "").replace("add9", "")
+            .replace("7sus4", "").replace("sus4", "").replace("sus2", "")
+            .replace("6/9", "")
+            .trimEnd('7', '°', '+', '2', '4', '6', '9')
+        val suffix = when (effectiveQuality) {
+            ChordQuality.MAJOR, ChordQuality.MINOR -> ""
+            ChordQuality.MAJOR7             -> "maj7"
+            ChordQuality.MAJOR9             -> "maj9"
+            ChordQuality.DOMINANT7          -> "7"
+            ChordQuality.MINOR7             -> "7"
+            ChordQuality.DOMINANT9          -> "9"
+            ChordQuality.MINOR9             -> "9"
+            ChordQuality.DOMINANT11         -> "11"
+            ChordQuality.DOMINANT13         -> "13"
+            ChordQuality.MINOR7_FLAT5       -> "ø7"
+            ChordQuality.DIMINISHED         -> "°"
+            ChordQuality.DIMINISHED7        -> "°7"
+            ChordQuality.AUGMENTED          -> "+"
+            ChordQuality.AUGMENTED7         -> "+7"
+            ChordQuality.SUS2               -> "sus2"
+            ChordQuality.SUS4               -> "sus4"
+            ChordQuality.DOMINANT7_SUS4     -> "7sus4"
+            ChordQuality.ADD9               -> "add9"
+            ChordQuality.SIX                -> "6"
+            ChordQuality.SIX_NINE           -> "6/9"
+            ChordQuality.MINOR_MAJOR7       -> "mMaj7"
+            ChordQuality.MINOR_ADD9         -> "add9"
+            else                            -> ""
+        }
+        return base + suffix
+    }
 }
 
 private val ROMAN_TO_DEGREE = mapOf(
@@ -112,7 +148,7 @@ fun resolveProgression(key: MusicKey, slots: List<ChordSlot>): List<ResolvedChor
     return slots.map { slot ->
         val baseRoot = diatonic[(slot.degree - 1).coerceIn(0, 6)]
         val finalRoot = (baseRoot + slot.rootOffset + 12) % 12
-        ResolvedChord(finalRoot, slot.effectiveQuality, slot.romanLabel, slot.degree)
+        ResolvedChord(finalRoot, slot.effectiveQuality, slot.effectiveRomanLabel, slot.degree) // MODIFIED made by Claude 01/09/2026
     }
 }
 fun validQualitiesForDegree(degree: Int, key: MusicKey): List<ChordQuality> {

@@ -762,3 +762,25 @@ Wire piano voicings JSON
 V7 display bug in Music Dashboard
 Split JamLabActivity.kt (now ~1,900+ lines)
 
+Good call. Here's what we accomplished today:
+
+Done this session:
+
+ProgressionDefinitions.kt — effectiveRomanLabel computed property on ChordSlot; resolveProgression() now uses it. V7 display bug fixed.
+PianoChordLibrary.kt — new singleton, mirrors GuitarChordLibrary pattern, loads voicings_compact_piano.json, discards degenerate entries
+FretboardLayoutsApplication.kt — PianoChordLibrary.initialize(this) added
+StyleEngine.findPianoChordNotes() — library lookup as primary path, ChordNoteBuilder as fallback
+
+Next session — in order:
+
+Voicing density selector (Power / Triad / Full / Extended) — UI in Jam Lab + wired through PlaybackLoopJamLabHandler → generateAccompaniment()
+Round-robin voicing variation toggle — guitar cycles library voicings, piano cycles algorithmically generated inversions
+Then back to the broader pending list (live volume fix, ChordType UI, per-genre mixer defaults)
+
+Before next session — update CLAUDE.md with today's changes:
+
+PianoChordLibrary.kt created, initialized in FretboardLayoutsApplication
+Asset: voicings_compact_piano.json (412 entries)
+effectiveRomanLabel on ChordSlot — V7 display bug fixed
+findPianoChordNotes() now uses library as primary path
+Piano inversion cycling planned (round-robin next session)

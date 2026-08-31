@@ -13,6 +13,7 @@ package com.example.fretboardlayouts
 
 import android.app.Application
 import com.example.fretboardlayouts.theory.GuitarChordLibrary  // NEW
+import com.example.fretboardlayouts.theory.PianoChordLibrary // NEW
 
 class FretboardLayoutsApplication : Application() {
     val session = SessionState()
@@ -21,5 +22,6 @@ class FretboardLayoutsApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         GuitarChordLibrary.initialize(this)
+        PianoChordLibrary.initialize(this) // NEW made by Claude 01/09/2026
     }
 }

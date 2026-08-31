@@ -20,6 +20,7 @@ import com.example.fretboardlayouts.theory.GrooveType         // made by Claude 
 import com.example.fretboardlayouts.theory.GuitarChordLibrary
 import com.example.fretboardlayouts.theory.grooveOffsetMs     // made by Claude 11/07
 import com.example.fretboardlayouts.theory.InstrumentRole     // made by Claude 11/07
+import com.example.fretboardlayouts.theory.PianoChordLibrary
 import com.example.fretboardlayouts.theory.VoiceLeadingEngine
 
 /**
@@ -1622,14 +1623,23 @@ object StyleEngine {
 // ChordNoteBuilder.INTERVALS which covers all 25 ChordQuality values including
 // 7th/9th/extended tones. Root placed in C3-B3 range (MIDI 48-59) for
 // mid-register piano comping. Notes capped at C5 (MIDI 72) to avoid shrillness.
+    // MODIFIED made by Claude 01/09/2026 — PianoChordLibrary lookup as primary path;
+// ChordNoteBuilder remains fallback for POWER/TRIAD and chords not in library.
     private fun findPianoChordNotes(
         chord: ResolvedChord,
         chordType: ChordType = ChordType.FULL
     ): List<Int> {
+        // Library voicings are real piano grips sitting in octave 4 (MIDI 60–71).
+        // Skip for POWER/TRIAD — library only has full/extended voicings.
+        if (chordType == ChordType.FULL || chordType == ChordType.EXTENDED) {
+            val libraryVoicing = PianoChordLibrary.bestVoicing(chord.rootPitchClass, chord.quality)
+            if (libraryVoicing != null) return libraryVoicing
+        }
+        // Fallback: algorithmic voicing — root in C3-B3 (MIDI 48-59), cap at C5 (72)
         val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 48)
-            .let { if (it > 59) it - 12 else it }   // stay in C3-B3 (MIDI 48-59)
+            .let { if (it > 59) it - 12 else it }
         return ChordNoteBuilder.buildNotes(rootMidi, chord.quality, chordType)
-            .map { if (it > 72) it - 12 else it }    // fold anything above C5 down an octave
+            .map { if (it > 72) it - 12 else it }
             .distinct()
     }
 }
