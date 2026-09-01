@@ -40,6 +40,7 @@ package com.example.fretboardlayouts.theory
 enum class ChordType(val displayName: String) {
     POWER   ("Power (5)"),
     TRIAD   ("Triad"),
+    TETRAD  ("Tetrad (7th)"),
     FULL    ("Full"),
     EXTENDED("Extended")
 }
@@ -121,7 +122,8 @@ object ChordNoteBuilder {
         val all = INTERVALS[quality] ?: listOf(0, 4, 7)
         return when (chordType) {
             ChordType.POWER    -> listOf(0, 7)
-            ChordType.TRIAD    -> all.take(3)
+            ChordType.TRIAD  -> all.take(3)
+            ChordType.TETRAD -> all.take(4)
             ChordType.FULL,
             ChordType.EXTENDED -> all
         }
@@ -161,5 +163,25 @@ object ChordNoteBuilder {
     fun nearestMidi(pitchClass: Int, nearMidi: Int): Int {
         val base = (nearMidi / 12) * 12 + pitchClass
         return if (base < nearMidi) base + 12 else base
+    }
+}
+// made by Claude 02/09/2026
+enum class ChordDensity(val displayName: String) {
+    POWER  ("Power"),
+    TRIAD  ("Triad"),
+    TETRAD ("Tetrad"),
+    FULL   ("Full"),
+    AUTO   ("Auto")
+}
+
+fun ChordDensity.toChordType(channel: Int): ChordType = when (this) {
+    ChordDensity.POWER  -> ChordType.POWER
+    ChordDensity.TRIAD  -> ChordType.TRIAD
+    ChordDensity.TETRAD -> ChordType.TETRAD
+    ChordDensity.FULL   -> ChordType.FULL
+    ChordDensity.AUTO   -> when (channel) {
+        0    -> ChordType.TRIAD   // Guitar: tight triads by default
+        2, 3 -> ChordType.FULL   // Piano, Organ: full voicings
+        else -> ChordType.FULL
     }
 }

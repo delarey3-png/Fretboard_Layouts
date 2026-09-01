@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import com.example.fretboardlayouts.audio.JamLabAudioEngine
+import com.example.fretboardlayouts.theory.ChordDensity
 import com.example.fretboardlayouts.theory.Genre
 import com.example.fretboardlayouts.theory.HumanisationLevel
 import com.example.fretboardlayouts.theory.JamTimeline
@@ -66,6 +67,9 @@ class JamLabViewModel(application: Application) : AndroidViewModel(application) 
     var selectedInstrumentKey by mutableStateOf("guitar")
     var instrumentRoles      by mutableStateOf(
         INSTRUMENT_DEFS.associate { it.key to it.defaultRole }
+    )
+    var instrumentDensity    by mutableStateOf( // NEW made by Claude 02/09/2026
+        INSTRUMENT_DEFS.associate { it.key to ChordDensity.AUTO }
     )
     var selectedPatchByChannel by mutableStateOf(mapOf<Int, PatchOption>())
     var isPlaying            by mutableStateOf(false)

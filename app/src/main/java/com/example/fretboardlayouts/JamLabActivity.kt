@@ -76,6 +76,7 @@ import com.example.fretboardlayouts.theory.buildProgressionOptions
 import com.example.fretboardlayouts.theory.buildVisualStrumState
 import com.example.fretboardlayouts.ui.theme.FretboardLayoutsTheme
 import kotlin.math.roundToInt
+import com.example.fretboardlayouts.theory.ChordDensity   // NEW made by Claude 02/09/2026
 import com.example.fretboardlayouts.theory.InstrumentRole // made by Claude 11/07
 import com.example.fretboardlayouts.theory.applyGenreChordStyle
 import kotlinx.coroutines.delay // made by Claude 08/08/2026
@@ -592,6 +593,10 @@ fun JamLabScreen() {
     var instrumentRoles by remember {
         mutableStateOf(INSTRUMENT_DEFS.associate { it.key to it.defaultRole })
     }
+    // NEW made by Claude 02/09/2026 — per-instrument voicing density
+    var instrumentDensity by remember {
+        mutableStateOf(INSTRUMENT_DEFS.associate { it.key to ChordDensity.AUTO })
+    }
 
     // NEW made by Claude 09/08/2026 — per-genre channel volume mixer
     // Stored per-genre so switching Blues→Rock→Blues restores the Blues mix.
@@ -943,11 +948,15 @@ fun JamLabScreen() {
             Spacer(modifier = Modifier.height(6.dp))
             InstrumentRoleMatrix(
                 instrumentRoles = instrumentRoles,
+                instrumentDensity = instrumentDensity,    // NEW made by Claude 02/09/2026
                 selectedKey = selectedInstrumentKey,
-                genre = currentGenre,                     // NEW made by Claude 09/08/2026
-                availablePatches = availablePatches,      // NEW made by Claude 09/08/2026
+                genre = currentGenre,
+                availablePatches = availablePatches,
                 onRoleChanged = { key, role ->
                     instrumentRoles = instrumentRoles + (key to role)
+                },
+                onDensityChanged = { key, density ->      // NEW made by Claude 02/09/2026
+                    instrumentDensity = instrumentDensity + (key to density)
                 },
                 onInstrumentSelected = { selectedInstrumentKey = it }
             )
@@ -986,6 +995,7 @@ fun JamLabScreen() {
                     humanisationLevel = currentHumanisation,
                     channelVolume = currentChannelVolume,
                     voiceLeadingEnabled = voiceLeadingEnabled,
+                    instrumentDensity = instrumentDensity,  // NEW made by Claude 02/09/2026
                     onVoicingChanged = { chordName, voicings ->
                         diagnosticChordName = chordName
                         diagnosticVoicings  = voicings
@@ -1010,8 +1020,8 @@ private fun PlaybackLoopJamLabHandler(
     instrumentRoles: Map<String, InstrumentRole>,  // made by Claude 10/07
     humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
     channelVolume: Map<Int, Float> = emptyMap(),   // NEW made by Claude 09/08/2026
-    voiceLeadingEnabled: Boolean = false,          // NEW made by Claude 19/08/2026
-    // MODIFIED made by Claude 26/08/2026 — map covers all melodic channels
+    voiceLeadingEnabled: Boolean = false,
+    instrumentDensity: Map<String, ChordDensity> = emptyMap(),  // NEW made by Claude 02/09/2026
     onVoicingChanged: ((chordName: String, voicings: Map<Int, List<Int>>) -> Unit)? = null,
     onBarChanged: (Int) -> Unit                    // made by Claude 11/07
 ) {
@@ -1037,11 +1047,12 @@ private fun PlaybackLoopJamLabHandler(
     // so toggling it mid-session regenerates events with voice-led voicings.
     val backingTrackEvents = remember(
         timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles, channelVolume,
-        voiceLeadingEnabled
+        voiceLeadingEnabled, instrumentDensity  // NEW made by Claude 02/09/2026
     ) {
         com.example.fretboardlayouts.audio.StyleEngine.generateAccompaniment(
             timeline, genre, preset, pickingPreset, humanisationLevel, instrumentRoles,
-            voiceLeadingEnabled = voiceLeadingEnabled
+            voiceLeadingEnabled = voiceLeadingEnabled,
+            instrumentDensity = instrumentDensity  // NEW made by Claude 02/09/2026
         ).map { event ->
             event.copy(
                 velocity = (event.velocity * (channelVolume[event.channel] ?: 1.0f))
@@ -1261,10 +1272,12 @@ private fun PresetDropdownJamLab(
 @Composable
 private fun InstrumentRoleMatrix(
     instrumentRoles: Map<String, InstrumentRole>,
+    instrumentDensity: Map<String, ChordDensity>,       // NEW made by Claude 02/09/2026
     selectedKey: String,
-    genre: Genre,                                       // NEW made by Claude 09/08/2026
-    availablePatches: Map<String, List<PatchOption>>,   // NEW made by Claude 09/08/2026
+    genre: Genre,
+    availablePatches: Map<String, List<PatchOption>>,
     onRoleChanged: (String, InstrumentRole) -> Unit,
+    onDensityChanged: (String, ChordDensity) -> Unit,   // NEW made by Claude 02/09/2026
     onInstrumentSelected: (String) -> Unit
 ) {
     // NEW made by Claude 09/08/2026
@@ -1374,6 +1387,47 @@ private fun InstrumentRoleMatrix(
                     enabled = def.supportsHybrid,
                     modifier = Modifier.weight(1f)
                 ) { onRoleChanged(def.key, InstrumentRole.HYBRID); onInstrumentSelected(def.key) }
+            }
+            // NEW made by Claude 02/09/2026 — density selector row for guitar and piano
+            if (def.key == "guitar" || def.key == "piano") {
+                val density = instrumentDensity[def.key] ?: ChordDensity.AUTO
+                val densityOptions = if (def.key == "piano")
+                    ChordDensity.values().filter { it != ChordDensity.POWER }
+                else
+                    ChordDensity.values().toList()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, end = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Voicing:",
+                        fontSize = 9.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.width(46.dp)
+                    )
+                    densityOptions.forEach { d ->
+                        val selected = density == d
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable { onDensityChanged(def.key, d) }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = d.displayName,
+                                fontSize = 9.sp,
+                                color = if (selected) Color.White else Color.Gray
+                            )
+                        }
+                    }
+                }
             }
         }
     }

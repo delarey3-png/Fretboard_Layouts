@@ -1,6 +1,8 @@
 package com.example.fretboardlayouts.audio
+import com.example.fretboardlayouts.theory.ChordDensity
 import com.example.fretboardlayouts.theory.ChordNoteBuilder
 import com.example.fretboardlayouts.theory.ChordType
+import com.example.fretboardlayouts.theory.toChordType
 import com.example.fretboardlayouts.theory.Genre
 import com.example.fretboardlayouts.theory.JamTimeline
 import com.example.fretboardlayouts.theory.ResolvedChord
@@ -89,7 +91,8 @@ object StyleEngine {
         pickingPreset: PickingPreset? = null,
         humanisationLevel: HumanisationLevel = HumanisationLevel.OFF,
         instrumentRoles: Map<String, InstrumentRole> = emptyMap(), // made by Claude 11/07
-        voiceLeadingEnabled: Boolean = false  // NEW made by Claude 19/08/2026
+        voiceLeadingEnabled: Boolean = false,  // NEW made by Claude 19/08/2026
+        instrumentDensity: Map<String, ChordDensity> = emptyMap()  // NEW made by Claude 02/09/2026
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val allEvents = mutableListOf<BackingTrackGenerator.MidiNoteEvent>()
         val timeSignature = timeline.timeSignature
@@ -116,6 +119,10 @@ object StyleEngine {
             val synthRole = instrumentRoles["synth"] ?: InstrumentRole.OFF
             val ethnicRole = instrumentRoles["ethnic"] ?: InstrumentRole.OFF
 
+            // NEW made by Claude 02/09/2026 — per-instrument ChordType from density
+            val guitarChordType = (instrumentDensity["guitar"] ?: ChordDensity.AUTO).toChordType(0)
+            val pianoChordType  = (instrumentDensity["piano"]  ?: ChordDensity.AUTO).toChordType(2)
+
             if (drumsRole != InstrumentRole.OFF)
                 allEvents.addAll(generateDrums(startMs, durationMs, genre, timeSignature))
             if (bassRole != InstrumentRole.OFF)
@@ -124,11 +131,11 @@ object StyleEngine {
                 // MODIFIED made by Claude 19/08/2026 — voice leading computes voicing once,
                 // shared by whichever guitar generator runs (strum or picking)
                 // MODIFIED made by Claude 25/08/2026 — first chord seeded from library,
-// not from VoiceLeadingEngine empty fallback. Ensures voice leading starts
-// from a guitar-realistic spread voicing rather than a closed-position triad.
+                // not from VoiceLeadingEngine empty fallback. Ensures voice leading starts
+                // from a guitar-realistic spread voicing rather than a closed-position triad.
                 val guitarVoicing: List<Int>? = if (voiceLeadingEnabled) {
                     if (prevGuitarVoicing.isEmpty()) {
-                        findGuitarVoicing(chord).also { prevGuitarVoicing = it }
+                        findGuitarVoicing(chord, guitarChordType).also { prevGuitarVoicing = it }
                     } else {
                         VoiceLeadingEngine.leadToGuitar(
                             prevGuitarVoicing, chord.rootPitchClass, chord.quality
@@ -141,6 +148,7 @@ object StyleEngine {
                     allEvents.addAll(
                         generateGuitarPicking(
                             startMs, durationMs, chord, pickingPreset, timeSignature,
+                            chordType = guitarChordType,
                             precomputedVoicing = guitarVoicing
                         )
                     )
@@ -148,6 +156,7 @@ object StyleEngine {
                     allEvents.addAll(
                         generateGuitar(
                             startMs, durationMs, chord, guitarPreset, timeSignature,
+                            chordType = guitarChordType,
                             precomputedVoicing = guitarVoicing
                         )
                     )
@@ -157,7 +166,7 @@ object StyleEngine {
                 // MODIFIED made by Claude 25/08/2026 — first chord seeded from findPianoChordNotes
                 val pianoVoicing: List<Int>? = if (voiceLeadingEnabled) {
                     if (prevPianoVoicing.isEmpty()) {
-                        findPianoChordNotes(chord).also { prevPianoVoicing = it }
+                        findPianoChordNotes(chord, pianoChordType).also { prevPianoVoicing = it }
                     } else {
                         VoiceLeadingEngine.leadToPiano(
                             prevPianoVoicing, chord.rootPitchClass, chord.quality
@@ -167,6 +176,7 @@ object StyleEngine {
                 allEvents.addAll(
                     generatePiano(
                         startMs, durationMs, chord, genre, timeSignature, pianoRole,
+                        chordType = pianoChordType,
                         precomputedVoicing = pianoVoicing
                     )
                 )
