@@ -45,7 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -471,6 +473,9 @@ fun JamLabScreen() {
     // MODIFIED made by Claude 26/08/2026 — single map covers all instruments
     var diagnosticChordName  by remember { mutableStateOf("") }
     var diagnosticVoicings   by remember { mutableStateOf<Map<Int, List<Int>>>(emptyMap()) }
+    // NEW made by Claude 02/09/2026 — accumulated voicing log, one entry per bar index
+    // Keyed by barIndex so cycling the loop overwrites rather than duplicates.
+    var voicingLog by remember { mutableStateOf(mapOf<Int, Pair<String, Map<Int, List<Int>>>>()) }
 
     var currentGenreChordStyle by remember(currentGenre) { // NEW made by Claude 17/08/2026
         mutableStateOf(GenreChordStyles.defaultFor(currentGenre)) // NEW
@@ -588,6 +593,7 @@ fun JamLabScreen() {
     var isPlaying by remember { mutableStateOf(false) }
     var showGeneratingMessage by remember { mutableStateOf(false) }
     var currentTimeline by remember { mutableStateOf<JamTimeline?>(null) }
+    LaunchedEffect(currentTimeline) { voicingLog = emptyMap() }  // NEW made by Claude 02/09/2026
 
     // made by Claude 10/07: Instrument role state
     var instrumentRoles by remember {
@@ -657,9 +663,10 @@ fun JamLabScreen() {
         }
         if (showVoicingPanel) {
             VoicingDiagnosticPanel(
-                chordName = diagnosticChordName,
-                voicings  = diagnosticVoicings,
-                modifier  = Modifier
+                chordName  = diagnosticChordName,
+                voicings   = diagnosticVoicings,
+                voicingLog = voicingLog,           // NEW made by Claude 02/09/2026
+                modifier   = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 8.dp)
@@ -996,9 +1003,10 @@ fun JamLabScreen() {
                     channelVolume = currentChannelVolume,
                     voiceLeadingEnabled = voiceLeadingEnabled,
                     instrumentDensity = instrumentDensity,  // NEW made by Claude 02/09/2026
-                    onVoicingChanged = { chordName, voicings ->
+                    onVoicingChanged = { barIndex, chordName, voicings ->  // MODIFIED made by Claude 02/09/2026
                         diagnosticChordName = chordName
                         diagnosticVoicings  = voicings
+                        voicingLog = voicingLog + (barIndex to (chordName to voicings))
                     },
                     onBarChanged = { currentBarIndex = it }
                 )
@@ -1022,7 +1030,7 @@ private fun PlaybackLoopJamLabHandler(
     channelVolume: Map<Int, Float> = emptyMap(),   // NEW made by Claude 09/08/2026
     voiceLeadingEnabled: Boolean = false,
     instrumentDensity: Map<String, ChordDensity> = emptyMap(),  // NEW made by Claude 02/09/2026
-    onVoicingChanged: ((chordName: String, voicings: Map<Int, List<Int>>) -> Unit)? = null,
+    onVoicingChanged: ((barIndex: Int, chordName: String, voicings: Map<Int, List<Int>>) -> Unit)? = null,  // MODIFIED made by Claude 02/09/2026
     onBarChanged: (Int) -> Unit                    // made by Claude 11/07
 ) {
     // made by Claude 10/07: Only fire MIDI events for active channels
@@ -1093,7 +1101,7 @@ private fun PlaybackLoopJamLabHandler(
                                     .map { it.pitch }.distinct().sorted()
                             }
                             .filter { it.value.isNotEmpty() }
-                        callback(barEvent.chord.name, voicings)
+                        callback(currentBar, barEvent.chord.name, voicings)  // MODIFIED made by Claude 02/09/2026
                     }
                 }
             }
@@ -1838,11 +1846,36 @@ private fun VolumeMixerPopup(
 private fun VoicingDiagnosticPanel(
     chordName: String,
     voicings: Map<Int, List<Int>>,
+    voicingLog: Map<Int, Pair<String, Map<Int, List<Int>>>> = emptyMap(),  // NEW made by Claude 02/09/2026
     modifier: Modifier = Modifier
 ) {
+    val clipboardManager = LocalClipboardManager.current  // NEW made by Claude 02/09/2026
+
     fun midiToName(midi: Int): String {
         val names = arrayOf("C","C#","D","D#","E","F","F#","G","G#","A","A#","B")
         return names[midi % 12] + (midi / 12 - 1)
+    }
+
+    // NEW made by Claude 02/09/2026 — formats full log as plain text for clipboard
+    fun formatLog(): String {
+        if (voicingLog.isEmpty()) return "No voicing data captured yet."
+        val channelNames = mapOf(
+            0 to "Guitar", 1 to "Bass", 2 to "Piano", 3 to "Organ",
+            4 to "Strings", 5 to "Ensemble", 6 to "Brass", 7 to "Reed",
+            8 to "Pipe", 10 to "Synth", 11 to "Ethnic"
+        )
+        return voicingLog.entries
+            .sortedBy { it.key }
+            .joinToString("\n\n") { (barIdx, entry) ->
+                val (chord, chVoicings) = entry
+                "Bar ${barIdx + 1}: $chord\n" +
+                        chVoicings.entries
+                            .sortedBy { it.key }
+                            .joinToString("\n") { (ch, notes) ->
+                                val label = channelNames[ch] ?: "Ch$ch"
+                                "  $label: ${notes.joinToString(" ") { midiToName(it) }}"
+                            }
+            }
     }
 
     val channelLabels = mapOf(
@@ -1865,12 +1898,29 @@ private fun VoicingDiagnosticPanel(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = if (chordName.isEmpty()) "Not playing" else "Chord: $chordName",
-            fontSize = 10.sp,
-            color = Color(0xFF90CAF9),
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (chordName.isEmpty()) "Not playing" else "Chord: $chordName",
+                fontSize = 10.sp,
+                color = Color(0xFF90CAF9),
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            // NEW made by Claude 02/09/2026 — copy full log to clipboard
+            Text(
+                text = "📋 Copy log",
+                fontSize = 9.sp,
+                color = if (voicingLog.isEmpty()) Color(0xFF444466) else Color(0xFF90CAF9),
+                modifier = Modifier
+                    .clickable(enabled = voicingLog.isNotEmpty()) {
+                        clipboardManager.setText(AnnotatedString(formatLog()))
+                    }
+                    .padding(4.dp)
+            )
+        }
         if (voicings.isEmpty()) {
             Text("—", fontSize = 9.sp, color = Color(0xFF444466))
         } else {

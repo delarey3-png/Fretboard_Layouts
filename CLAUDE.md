@@ -808,3 +808,52 @@ Auto — instrument-appropriate default (guitar=triad/tetrad, piano=full)
 Auto is probably the right default so it sounds good out of the box without the user needing to understand the difference.
 
 Good thinking — note this in CLAUDE.md before you push so it's captured for next session.
+
+Session 02/09/2026 — Voicing Density, Register Audit, Clipboard Logger
+
+Files changed: ChordNoteBuilder.kt, JamLabViewModel.kt, StyleEngine.kt, JamLabActivity.kt
+
+Completed:
+
+ChordNoteBuilder.kt — TETRAD added to ChordType enum ("Tetrad (7th)"). ChordDensity enum
+added (POWER/TRIAD/TETRAD/FULL/AUTO) with toChordType(channel) extension. AUTO defaults:
+Guitar=TRIAD, Piano/Organ=FULL.
+
+JamLabViewModel.kt — instrumentDensity state added, keyed by instrument key, defaults AUTO.
+
+StyleEngine.kt — instrumentDensity parameter added to generateAccompaniment(). Per-instrument
+ChordType resolved from density at loop start, threaded into generateGuitar(),
+generateGuitarPicking(), generatePiano() call sites. Pitch class bug fixed in
+findGuitarVoicing() algorithmic fallback — was calling buildNotes(0,...) giving C's
+intervals for every root. Fixed to intervalsFor() mapped through chord.rootPitchClass.
+Register separation audit and fixes:
+Organ: root raised to C5–B5 (was C4), simplified to root+5th hollow pad
+Strings: base raised from C4 to C5, clamp updated to A4–E6
+Brass: kept at C4–G4 — staccato stabs contrast rhythmically with piano's sustained comping
+Final confirmed register map (ear-tested, all instruments enabled):
+Bass:     C2        — isolated
+Guitar:   C3–G4     — library voicings
+Piano:    C4–B4     — library voicings, full chord
+Brass:    C4–B4     — stabs only, short duration
+Reed:     C4        — single root note
+Ethnic:   C4–D5     — root+5th
+Organ:    C5–C6     — root+5th pad
+Strings:  C5–E6     — three-voice pad
+Ensemble: C5–D6     — open-fifth pad
+
+JamLabActivity.kt — Voicing density selector UI added to InstrumentRoleMatrix for Guitar
+and Piano rows. Chip-style selector (Power/Triad/Tetrad/Full/Auto), Power excluded from
+Piano. Clipboard voicing logger added to VoicingDiagnosticPanel — "📋 Copy log" button
+captures all bars played (keyed by barIndex, overwrites on loop repeat) and copies full
+log as plain text to clipboard. Log resets on new timeline generation.
+
+Next session:
+
+Voicing audit — systematic test of all progressions across multiple keys, VL on/off,
+all density settings. Results captured in spreadsheet and pasted into session. Fix any
+pitch class, register, or chord tone errors found before proceeding.
+
+After audit:
+Round-robin voicing variation — guitar cycles library voicings per bar, piano cycles
+root/first/second inversion algorithmically per bar.
+Then: live volume fix, per-genre mixer defaults, split JamLabActivity.kt.

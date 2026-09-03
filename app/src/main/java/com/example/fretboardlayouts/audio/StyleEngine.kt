@@ -1209,16 +1209,15 @@ object StyleEngine {
         // Shell voicing: root + 3rd + 7th (or 5th for triads). Sits above piano.
         // MODIFIED made by Claude 26/08/2026 — reference raised from 55(G3) to 60(C4)
         // so organ root lands in C4-B4, a full octave above piano's C3-B3 root range.
-        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 60)
-            .let { if (it > 71) it - 12 else it }   // root in C4–B4
-        val intervals = ChordNoteBuilder.intervalsFor(chord.quality, ChordType.FULL)
-        // MODIFIED made by Claude 26/08/2026 — full voicing (all tones up to 4 notes)
-        // instead of shell voicing. Shell was omitting the 5th on 7th chords.
-        val shellNotes = intervals.take(4).map { interval ->
-            var note = rootMidi + interval
-            while (note > 72) note -= 12
-            note.coerceAtLeast(52)
-        }.distinct()
+        val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 72)
+            .let { if (it > 83) it - 12 else it }   // MODIFIED made by Claude 02/09/2026 — root in C5–B5, above piano
+        // MODIFIED made by Claude 02/09/2026 — root+5th only (hollow pad interval).
+        // Distinguishes organ from piano's full chord voicing.
+        // Fold ceiling raised to 84 to match new C5–B5 root range.
+        val shellNotes = listOf(rootMidi, rootMidi + 7)
+            .map { if (it > 84) it - 12 else it }
+            .filter { it in 72..88 }
+            .distinct()
 
         val b = timeSignature.beatsPerBar
         val beatMs = durationMs / b
@@ -1283,7 +1282,7 @@ object StyleEngine {
         return listOf(root, third, fifth).map { pitch ->
             BackingTrackGenerator.MidiNoteEvent(
                 startMs + delayMs, 4,
-                pitch.coerceIn(57, 76),  // clamp each note to A3-E5
+                pitch.coerceIn(69, 88),  // MODIFIED made by Claude 02/09/2026 — A4-E6, above piano
                 50, durationMs.toInt()
             )
         }
@@ -1571,8 +1570,8 @@ object StyleEngine {
         // TRIAD or library miss: algorithmic spread voicing
         val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 40)
             .let { if (it > 55) it - 12 else it }
-        val pitchClasses = ChordNoteBuilder.buildNotes(0, chord.quality, chordType)
-            .map { it % 12 }
+        val pitchClasses = ChordNoteBuilder.intervalsFor(chord.quality, chordType)
+            .map { (chord.rootPitchClass + it) % 12 } // MODIFIED made by Claude 02/09/2026
         val notes = mutableListOf(rootMidi)
         var cursor = maxOf(rootMidi + 7, 55)
         for (pc in pitchClasses.drop(1)) {
@@ -1599,9 +1598,9 @@ object StyleEngine {
     // MODIFIED made by Claude 26/08/2026 — raised from C3 base (48) to C4 base (60).
     // Strings must sit above piano (48-65), not inside it.
     private fun findStringsPitch(pitchClass: Int): Int {
-        var pitch = 60 + pitchClass  // C4 base
-        while (pitch < 57) pitch += 12   // floor: A3
-        while (pitch > 72) pitch -= 12   // ceiling: C5
+        var pitch = 72 + pitchClass  // MODIFIED made by Claude 02/09/2026 — C5 base (was C4, clashed with piano)
+        while (pitch < 69) pitch += 12   // floor: A4
+        while (pitch > 84) pitch -= 12   // ceiling: C6
         return pitch
     }
 
@@ -1619,13 +1618,13 @@ object StyleEngine {
     // was producing wrong pitch classes at the ceiling.
     private fun findBrassChordNotes(chord: ResolvedChord): List<Int> {
         val root = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 60)
-            .let { if (it > 67) it - 12 else it }   // root in C4–G4
+            .let { if (it > 67) it - 12 else it }   // MODIFIED made by Claude 02/09/2026 — root in C4–G4, stabs contrast rhythmically with piano comping
         // MODIFIED made by Claude 26/08/2026 — TRIAD was dropping b7th on 7th chords.
         // FULL gives up to 4 intervals so G7 brass gets G,B,D,F not just G,B,D.
         return ChordNoteBuilder.intervalsFor(chord.quality, ChordType.FULL).take(4).map { interval ->
             var note = root + interval
-            while (note > 72) note -= 12   // fold above C5, preserve pitch class
-            note.coerceAtLeast(52)
+            while (note > 72) note -= 12   // fold above C5
+            note.coerceAtLeast(48)         // floor at C3
         }.distinct()
     }
 
