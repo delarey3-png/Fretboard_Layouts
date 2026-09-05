@@ -1279,10 +1279,12 @@ object StyleEngine {
         val root  = findStringsPitch(chord.rootPitchClass)
         val third = root + chord.quality.intervals.getOrElse(1) { 4 }
         val fifth = root + 7
+        val ceil = 84 // C6 — fold ceiling for strings, nothing shrill above this // MODIFIED made by Claude 05/09/2026
         return listOf(root, third, fifth).map { pitch ->
+            val p = if (pitch > ceil) pitch - 12 else pitch // MODIFIED made by Claude 05/09/2026 — fold not clamp
             BackingTrackGenerator.MidiNoteEvent(
                 startMs + delayMs, 4,
-                pitch.coerceIn(69, 88),  // MODIFIED made by Claude 02/09/2026 — A4-E6, above piano
+                p,
                 50, durationMs.toInt()
             )
         }
@@ -1305,9 +1307,9 @@ object StyleEngine {
     ): List<BackingTrackGenerator.MidiNoteEvent> {
         val delayMs = 15L
         val rootMidi = ChordNoteBuilder.nearestMidi(chord.rootPitchClass, 72)
-        val fifth    = rootMidi + 7
+        val ceil = 84 // C6 — fold ceiling, matches strings // MODIFIED made by Claude 05/09/2026
+        val fifth = (rootMidi + 7).let { if (it > ceil) it - 12 else it } // MODIFIED made by Claude 05/09/2026 — fold not filter
         return listOf(rootMidi, fifth)
-            .filter { it in 67..88 }
             .map { pitch ->
                 BackingTrackGenerator.MidiNoteEvent(
                     startMs + delayMs, 5, pitch, 40, durationMs.toInt()

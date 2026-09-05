@@ -18,23 +18,23 @@ Let's Jam! must be the musician's swiss army knife without advertising to be one
 **What can this app do?**
 
 1. Create a song loop within 10 seconds that:
-    - Plays back at any tempo, genre, key and progression chosen (Music Setup — What are we playing?)
-    - Plays the genre, sub-genre, instruments selected (Sound Setup — What are we hearing?)
-    - Displays various musical scales and concepts in real-time while the band keeps playing (Lead Setup — What are we seeing/learning?)
-    - Shows a fretboard with beginner to advanced theory with playback
-    - Lets you customise what you see during playback using two fully independent overlays
+   - Plays back at any tempo, genre, key and progression chosen (Music Setup — What are we playing?)
+   - Plays the genre, sub-genre, instruments selected (Sound Setup — What are we hearing?)
+   - Displays various musical scales and concepts in real-time while the band keeps playing (Lead Setup — What are we seeing/learning?)
+   - Shows a fretboard with beginner to advanced theory with playback
+   - Lets you customise what you see during playback using two fully independent overlays
 
 2. Spend more time setting up an advanced loop with custom progression, alternate tunings, modes, various scale and chord tone overlays to practice to:
-    - Under the hood: alternate tunings, power chords, triads, extended chords, slash chords, modes, humanisation, etc.
-    - Select and edit what you want to see/practice live during playback
-    - Save the loop to favourites for easy playback later
-    - Share the loop with others
+   - Under the hood: alternate tunings, power chords, triads, extended chords, slash chords, modes, humanisation, etc.
+   - Select and edit what you want to see/practice live during playback
+   - Save the loop to favourites for easy playback later
+   - Share the loop with others
 
 3. Song Builder lets you use created loops as musical building blocks to create full songs:
-    - Building blocks are fully editable using the familiar interface from LoopBuilder
-    - Musical blocks have an option to add lyrics (share unfinished songs to band members!)
-    - String together diverse music blocks to create full songs
-    - Full songs can be jammed to, saved, or shared in PDF format or as .ljam song files
+   - Building blocks are fully editable using the familiar interface from LoopBuilder
+   - Musical blocks have an option to add lyrics (share unfinished songs to band members!)
+   - String together diverse music blocks to create full songs
+   - Full songs can be jammed to, saved, or shared in PDF format or as .ljam song files
 
 **What it is:**
 - A Guitar Practice App
@@ -196,8 +196,8 @@ val app = LocalContext.current.applicationContext as FretboardLayoutsApplication
 ```kotlin
 var sessionPushed by remember { mutableStateOf(false) }
 LaunchedEffect(key1, key2, ...) {
-    if (sessionPushed) { app.session.updateDashboard(...) }
-    else { sessionPushed = true }
+   if (sessionPushed) { app.session.updateDashboard(...) }
+   else { sessionPushed = true }
 }
 ```
 Prevents screen from overwriting session with local defaults on initial composition. Both LoopBuilder and Jam Lab use this. `LaunchedEffect` with state keys does not re-fire when returning to a paused Activity if keys haven't changed — this is what keeps Jam Lab's session alive when navigating back to LoopBuilder.
@@ -215,7 +215,7 @@ Comprehensive music theory reference: fretboard map (E2–E6), chord formulas, s
 - `C/E` and `G/B` entries are correct
 - Do not trust the slash chord section without independent verification
 
-### ChordNoteBuilder.kt (NEW 19/08/2026)
+### ChordNoteBuilder.kt (19/08/2026, updated 02/09/2026)
 Complete interval map for all 25 `ChordQuality` values. Replaces old hardcoded/triad-only note picking in guitar and piano generators. Source: music_theory_database_v2.json section 04, verified.
 
 ```kotlin
@@ -228,8 +228,11 @@ ChordNoteBuilder.buildPowerChord(rootMidi) → List<Int>     // root + fifth + o
 **`ChordType` enum:**
 - `POWER` — root + fifth only, no third (rock/metal with distortion)
 - `TRIAD` — first 3 intervals only
+- `TETRAD` — 4 notes (7th chord, added 02/09/2026)
 - `FULL` — all tones the quality defines (default)
 - `EXTENDED` — reserved for voicing engine expansion
+
+**`ChordDensity` enum (02/09/2026):** `POWER / TRIAD / TETRAD / FULL / AUTO` — per-instrument density setting. `AUTO` defaults: Guitar=TRIAD, Piano/Organ=FULL. Chip-style UI selector on Guitar and Piano rows in Jam Lab. `Power` excluded from Piano. `toChordType(channel)` extension resolves AUTO to the instrument-appropriate ChordType.
 
 **DOMINANT13 note:** omits the natural 11th (interval 17) per standard practice — the natural 11 clashes with the major 3rd on a 13 chord.
 
@@ -247,19 +250,19 @@ VoiceLeadingEngine.isCommonTone(pitchClass, voicing) → Boolean
 
 Instrument ranges: Guitar MIDI 40–76, Piano MIDI 48–72.
 
-**Status:** Built and wired. Some voicings sound bad — diagnostic work in progress using Voicing Inspector panel. Known issue: range clamping can force awkward leaps; extended chords may stack outside range.
+**Status:** Built and wired. Register audit largely complete; voicing quality tuning ongoing.
 
 ### GenreChordStyle.kt — Bug Fixed (19/08/2026)
 **Bug:** `jazz7ths` and `dominantVOnly` identified the dominant chord by `quality.family()`. Since V starts as plain MAJOR quality (correct), it was indistinguishable from I and IV. `jazz7ths` incorrectly mapped V→MAJOR7; `dominantVOnly` never fired.
 
 **Fix:** New `isDominantFunction(slot)` helper checks `slot.degree == 5` (major/dominant quality) OR `slot.degree == 7` (diminished quality). Both rules now route through this. Using `slot.quality` (not `slot.effectiveQuality`) is intentional — we're deciding what override to write, not reading a prior one.
 
-### Voicing Inspector Panel (NEW 19/08/2026)
-Live diagnostic tool in Jam Lab showing exact MIDI notes per instrument per bar as note name + octave (e.g. C3 E3 G3 C4). Toggled by 👁 icon under Music Dashboard in Jam Lab sticky header.
+### Voicing Inspector Panel (NEW 19/08/2026, expanded 02/09/2026)
+Live diagnostic tool in Jam Lab showing exact MIDI notes per instrument per bar as note name + octave (e.g. C3 E3 G3 C4). Toggled by 👁 icon under Music Dashboard in Jam Lab sticky header. Expanded 02/09 to cover all melodic channels (0–8, 10, 11).
 
-Used to verify: voice leading correctness, chord types (power/triad/full), slash chords, extended chord note construction.
+Clipboard voicing logger added 02/09: "📋 Copy log" button captures all bars played (keyed by barIndex, overwrites on loop repeat) and copies full log as plain text to clipboard. Log resets on new timeline generation. Used for the systematic register audit.
 
-`onVoicingChanged` callback in `PlaybackLoopJamLabHandler` fires on every bar change, extracting guitar (ch 0) and piano (ch 2) pitches from `backingTrackEvents` for the current bar. State held as local `remember` vars in `JamLabScreen` (not ViewModel).
+`onVoicingChanged` callback in `PlaybackLoopJamLabHandler` fires on every bar change. State held as local `remember` vars in `JamLabScreen` (not ViewModel).
 
 ---
 
@@ -287,8 +290,8 @@ Used to verify: voice leading correctness, chord types (power/triad/full), slash
 | 7th chords — simple toggle | LoopBuilder / Jam Lab | Scope: All / 1 / 1&5 / 5 / Custom |
 | Capo / Alternate tunings | Theory Engine | |
 | Voice leading — full manual | Theory Engine | Slash chords, inversions |
-| Voice leading — smart toggle | Jam Lab | ✅ Implemented 19/08/2026 — tuning in progress |
-| ChordType (Power/Triad/Full/Extended) | Jam Lab | Built — UI selector pending |
+| Voice leading — smart toggle | Jam Lab | ✅ Implemented 19/08/2026 |
+| ChordDensity (Power/Triad/Tetrad/Full/Auto) | Jam Lab | ✅ UI built 02/09/2026 — Guitar + Piano |
 | Scale type | Theory Engine | Jam Screen visualises |
 | Repeat for X measures | LoopBuilder / Jam Lab | |
 | Tempo | Jam Lab | |
@@ -364,6 +367,28 @@ Must be consistent across `INSTRUMENT_DEFS`, `channelVolumeScale`, and generator
 
 ---
 
+## Confirmed Register Map (ear-tested, all instruments enabled)
+
+```
+Bass:     C2        — isolated low end
+Guitar:   C3–G4     — GuitarChordLibrary voicings
+Piano:    C4–B4     — PianoChordLibrary voicings, full chord
+Brass:    C4–B4     — staccato stabs, short duration, fold at C5
+Reed:     C4        — single root note
+Ethnic:   C4–D5     — root + fifth
+Organ:    C5–C6     — root + fifth hollow pad, fold at C6
+Strings:  C5–C6     — three-voice triad pad, fold at C6 (05/09/2026)
+Ensemble: C5–C6     — open-fifth pad, fold at C6 (05/09/2026)
+```
+
+**Fold instruments:** Brass, Organ, Strings, Ensemble. All use `if (note > ceil) note - 12 else note` — NOT `coerceIn`. Bass, Guitar, Piano, Reed, Ethnic do not need folding (range is library-constrained or single-note).
+
+**Intentional double-ups:**
+- Guitar + Piano share C3–B4 — different voicing types (library grips vs close-position chords) complement without clashing
+- Organ + Strings + Ensemble share C5–C6 — different textures (shell / triad / open fifth) at low velocities, layering not competing
+
+---
+
 ## Jam Lab — Save System (DEFERRED — after theory work complete)
 
 **Context-aware save:**
@@ -419,7 +444,7 @@ Navigation prompt: "Changes since last save?" → [Save] [Skip] [Cancel]
 
 **Channel map sync:** `INSTRUMENT_DEFS`, `channelVolumeScale`, and generator functions must all agree. Shift in one file = pair change, deploy atomically.
 
-**Volume mixer architecture:** `channelVolumeScale` = factory per-genre balance. `VolumeMixerPopup` sliders = user multiplier applied as second pass in `backingTrackEvents`. Adding `channelVolume` to `remember` keys means slider moves recompute without restarting the loop. NB: current bug — volume changes only take effect after Stop+Play. Fix: move multiply to playback loop, not generation time.
+**Volume mixer architecture:** `channelVolumeScale` = factory per-genre balance. `VolumeMixerPopup` sliders = user multiplier applied as second pass in `backingTrackEvents`. NB: current bug — volume changes only take effect after Stop+Play. Fix: move multiply to playback loop, not generation time.
 
 **Session state skip-first-push:** Use `var pushed by remember { mutableStateOf(false) }` flag. Skip first `LaunchedEffect` fire to avoid overwriting session with local defaults. Both Activities use this pattern.
 
@@ -429,17 +454,21 @@ Navigation prompt: "Changes since last save?" → [Save] [Skip] [Cancel]
 
 **Freeze-pane layout:** Outer non-scrolling Column → fixed sticky section → inner Column with `verticalScroll`.
 
-**`private` modifier:** Not applicable to local functions or top-level composables in Kotlin. File-level composables cannot use `private`. Remove the modifier. Composables placed inside another composable body cannot be `private`.
+**`private` modifier:** Not applicable to local functions or top-level composables in Kotlin. File-level composables cannot use `private`. Remove the modifier.
 
 **`remember {}` is Composable-only:** Never use in a ViewModel. ViewModels use `mutableStateOf()` as delegated property directly.
 
 **Voice leading — degree vs quality:** Always identify the dominant chord by `slot.degree`, not `slot.quality.family()`. V starts as MAJOR quality — checking family() makes it indistinguishable from I and IV. Use `isDominantFunction(slot)`.
 
-**ChordNoteBuilder replaces all hardcoded note-picking.** `findGuitarVoicing()` and `findPianoChordNotes()` delegate to `ChordNoteBuilder.buildNotes()`. Root placement: guitar MIDI 40–55, piano MIDI 48–59. Notes clamped to instrument range.
+**ChordNoteBuilder replaces all hardcoded note-picking.** `findGuitarVoicing()` and `findPianoChordNotes()` delegate to `ChordNoteBuilder.buildNotes()`. Root placement: guitar MIDI 40–55, piano MIDI 48–59.
 
 **VoiceLeadingEngine.closestMidi()** checks BOTH above AND below reference pitch. `ChordNoteBuilder.nearestMidi()` only returns at-or-above. Use `closestMidi` for voice leading, `nearestMidi` for initial placement.
 
-**Voicing Inspector (👁 panel):** Diagnostic tool in Jam Lab showing MIDI note names per instrument per bar. Used to verify voice leading, chord types, slash chords, extended chords. State is local `remember` vars in `JamLabScreen` — not in ViewModel. `onVoicingChanged` callback in `PlaybackLoopJamLabHandler` fires on bar change.
+**Fold not clamp for register ceilings.** `coerceIn()` / `.filter {}` produce wrong pitch classes when the natural note exceeds the ceiling — they pin or drop to the ceiling value regardless of pitch class. Use fold: `if (note > ceil) note - 12 else note`. Strings had `coerceIn(69, 88)` producing E6 instead of F# for Bm (pitch class error). Ensemble had `.filter { it in 67..88 }` silently dropping the fifth for high-register roots. Both fixed 05/09/2026. The resulting spread voicings (5th folded below root) are musically appropriate for pad instruments.
+
+**Voicing Inspector (👁 panel):** Diagnostic tool in Jam Lab showing MIDI note names per instrument per bar. State is local `remember` vars in `JamLabScreen` — not in ViewModel. Clipboard logger captures bar-by-bar log for offline analysis.
+
+**ChordDensity is per-instrument, not global.** Guitar benefits from tight triads (physical string limit, muddy with distortion). Piano benefits from full voicings (no constraint, left+right hand range). `AUTO` gives instrument-appropriate defaults out of the box.
 
 **jTab is JavaScript/web-only** — not suitable for native Android Compose. Note name + octave display is the correct approach for MIDI-based diagnostics.
 
@@ -459,7 +488,7 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 
 ### Core Theory
 - **`MusicTheory.kt`** — Note names, pitch classes, diatonic scale builder, `MusicKey`, `ChordQuality` enum (25 values), scale type enum
-- **`ProgressionDefinitions.kt`** — `ChordSlot` (degree, quality, romanLabel, rootOffset, genreQualityOverride, userQualityOverride). Three-tier `effectiveQuality`: userQualityOverride ?: genreQualityOverride ?: quality. `chordSlot()` parser. `Progressions.MAJOR` + `Progressions.MINOR` + `Progressions.ALL`. `resolveProgression()`, `validQualitiesForDegree()`, `buildProgressionOptions()`
+- **`ProgressionDefinitions.kt`** — `ChordSlot` (degree, quality, romanLabel, rootOffset, genreQualityOverride, userQualityOverride). Three-tier `effectiveQuality`: userQualityOverride ?: genreQualityOverride ?: quality. `effectiveRomanLabel` computed property (V7 display fix). `chordSlot()` parser. `Progressions.MAJOR` + `Progressions.MINOR` + `Progressions.ALL`. `resolveProgression()`, `validQualitiesForDegree()`, `buildProgressionOptions()`
 - **`RhythmPattern.kt`** — `StrumPreset`, `VisualStrumAction`, `buildVisualStrumState()`
 - **`PickingPreset.kt`** — Travis picking, fingerstyle, arpeggio. Two presets currently.
 - **`Humanisation.kt`** — `HumanisationLevel` (OFF/LIGHT/MEDIUM/HEAVY), `GrooveType` (STRAIGHT/LAID_BACK/PUSHED), full per-instrument humanisation toolkit. Per-instrument personality multipliers (Bass=0.7x tightest).
@@ -468,26 +497,28 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 - **`CagedSystem.kt`** — CAGED shape logic
 - **`FretboardOverlay.kt`** — Scale and chord tone position calculation
 - **`GenreChordStyle.kt`** — Genre-aware chord quality styling. `ChordFamily` enum. `isDominantFunction(slot)` (FIXED 19/08/2026 — checks slot.degree, not quality.family()). `FunctionAwareRule`, `BlanketRule`, `AsWrittenRule`. `GenreChordStyles.byGenre`. Three-tier quality chain fully functional.
-- **`ChordNoteBuilder.kt`** — NEW 19/08/2026. `ChordType` enum (POWER/TRIAD/FULL/EXTENDED). `INTERVALS` map for all 25 ChordQuality values. `buildNotes()`, `intervalsFor()`, `nearestMidi()`, `buildPowerChord()`.
-- **`VoiceLeadingEngine.kt`** — NEW 19/08/2026. Nearest-note voice leading. `leadToGuitar()`, `leadToPiano()`, `leadTo()`, `closestMidi()`, `totalMovement()`, `isCommonTone()`. Ranges: Guitar 40–76, Piano 48–72. Status: wired and working; voicing quality being diagnosed with Inspector panel.
+- **`ChordNoteBuilder.kt`** — `ChordType` enum (POWER/TRIAD/TETRAD/FULL/EXTENDED). `ChordDensity` enum (POWER/TRIAD/TETRAD/FULL/AUTO) with `toChordType(channel)` extension. `INTERVALS` map for all 25 ChordQuality values. `buildNotes()`, `intervalsFor()`, `nearestMidi()`, `buildPowerChord()`.
+- **`VoiceLeadingEngine.kt`** — Nearest-note voice leading. `leadToGuitar()`, `leadToPiano()`, `leadTo()`, `closestMidi()`, `totalMovement()`, `isCommonTone()`. Ranges: Guitar 40–76, Piano 48–72.
 
 ### Audio Engine
-- **`StyleEngine.kt`** — `generateAccompaniment()` with `humanisationLevel`, `instrumentRoles`, `voiceLeadingEnabled: Boolean = false` (NEW 19/08/2026). Tracks `prevGuitarVoicing` + `prevPianoVoicing` across bars when voice leading enabled. `generateGuitar()`, `generateGuitarPicking()`, `generatePiano()` accept `chordType: ChordType = ChordType.FULL` and `precomputedVoicing: List<Int>? = null` (NEW 19/08/2026). `findGuitarVoicing()` and `findPianoChordNotes()` delegate to `ChordNoteBuilder`. Full 12-channel GM support. Genre groove mapping: Jazz/Blues=LAID_BACK, Country=PUSHED, Rock/Funk/Disco/Ska=STRAIGHT, Reggae=LAID_BACK.
+- **`StyleEngine.kt`** — `generateAccompaniment()` with `humanisationLevel`, `instrumentRoles`, `instrumentDensity`, `voiceLeadingEnabled`. Tracks `prevGuitarVoicing` + `prevPianoVoicing` across bars when voice leading enabled. Per-instrument ChordType resolved from density at loop start. `generateGuitar()`, `generateGuitarPicking()`, `generatePiano()` accept `chordType` and `precomputedVoicing`. `findGuitarVoicing()` and `findPianoChordNotes()` delegate to `ChordNoteBuilder` (library first, algorithmic fallback). `generateStrings()` — 3-note triad pad, fold at C6 (MIDI 84), no clamp (05/09/2026). `generateEnsemble()` — 2-note open-fifth pad, fold at C6 (05/09/2026). `generateOrgan()` — 2-note shell, fold at C6. `findBrassChordNotes()` — 4-note full voicing, fold at C5. Genre groove mapping: Jazz/Blues=LAID_BACK, Country=PUSHED, Rock/Funk/Disco/Ska=STRAIGHT, Reggae=LAID_BACK.
 - **`PatternRenderer.kt`** — `renderVoice()`, `renderPitchSequence()`, `renderStrum()`, `addStrum()`. Sustain 0.65f/50ms. Ring time = gap to next hit.
 - **`TimelineBuilder.kt`** — `buildJamTimeline()`, `JamTimeline`
 - **`JamLabAudioEngine.kt`** — Standalone MIDI engine. `loadGenrePatches(genre)`, `getRawPresets()`, `engineName` getter. Wake lock support.
 - **`BackingTrackGenerator.kt`** — `MidiNoteEvent` data class only (`generateLoopEvents()` deleted 16/08/2026).
 - **`GenreInstruments.kt`** — `GenreInstrumentation` defaults for all 12 channels per genre.
+- **`GuitarChordLibrary.kt`** — Loads `voicings_compact.json` (2,942 real guitar grips) from assets. Initialized in `FretboardLayoutsApplication.onCreate()`.
+- **`PianoChordLibrary.kt`** — Loads `voicings_compact_piano.json` (412 entries) from assets. Initialized in `FretboardLayoutsApplication.onCreate()`. Degenerate entries discarded on load.
 - **`FluidSynthEngine.kt`** — JNI bridge. Skips bank_select on ch9.
 
 ### UI / Screens
 - **`MainActivity.kt`** — LoopBuilder (SetupScreen) + Jam Screen (PlaybackScreen). Music Dashboard in sticky header (SetupScreen) and compact flanked by overlay controls (PlaybackScreen). Session push on user-driven changes (skip-first-push).
-- **`JamLabActivity.kt`** — Full sound sandbox. Voice Leading toggle (below Humanisation). Voicing Inspector panel (👁 toggle under Music Dashboard). `VoicingDiagnosticPanel` and `VoicingRow` at file level (not private, not nested). `PlaybackLoopJamLabHandler` accepts `voiceLeadingEnabled` + `onVoicingChanged` callback. Session push on user-driven changes. Diagnostic state (`diagnosticChordName`, `diagnosticGuitarVoicing`, `diagnosticPianoVoicing`) held as local `remember` vars in `JamLabScreen`.
-- **`JamLabViewModel.kt`** — All Jam Lab screen state as `mutableStateOf`. Includes `voiceLeadingEnabled` (NEW 19/08/2026). `audioEngine` created once, released in `onCleared()`. `availablePatches` loaded lazily from SF2.
-- **`MainViewModel.kt`** — AppState machine. `startPlaybackLoop()` 8ms coroutine on Dispatchers.Default. `withFrameMillis` removed.
+- **`JamLabActivity.kt`** — Full sound sandbox. Voice Leading toggle. Voicing Inspector panel (👁 toggle). Clipboard voicing logger. ChordDensity chip selector on Guitar + Piano rows. `VoicingDiagnosticPanel` and `VoicingRow` at file level (not private, not nested). `PlaybackLoopJamLabHandler` accepts `voiceLeadingEnabled`, `instrumentDensity`, `onVoicingChanged`. Diagnostic state held as local `remember` vars in `JamLabScreen`. ~1,900+ lines — flagged for splitting.
+- **`JamLabViewModel.kt`** — All Jam Lab screen state as `mutableStateOf`. Includes `voiceLeadingEnabled`, `instrumentDensity` (keyed by instrument, defaults AUTO). `audioEngine` created once, released in `onCleared()`. `availablePatches` loaded lazily from SF2.
+- **`MainViewModel.kt`** — AppState machine. `startPlaybackLoop()` 8ms coroutine on Dispatchers.Default.
 - **`MusicDashboard.kt`** — Shared stateless composable. `DashboardState` + `activeChordIndex: Int = -1` + `compact: Boolean = false`.
 - **`SessionState.kt`** — `DashboardState` data class + `SessionState` with `var dashboard by mutableStateOf`.
-- **`FretboardLayoutsApplication.kt`** — Custom Application class. `val session = SessionState()`. Registered in AndroidManifest via `android:name=".FretboardLayoutsApplication"`.
+- **`FretboardLayoutsApplication.kt`** — Custom Application class. `val session = SessionState()`. `GuitarChordLibrary.initialize(this)` + `PianoChordLibrary.initialize(this)` in `onCreate()`. Registered in AndroidManifest via `android:name=".FretboardLayoutsApplication"`.
 
 ---
 
@@ -503,17 +534,21 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 ## Pending / Deferred
 
 ### Theory & Audio — Immediate Priority (complete before save system)
-- [ ] **Diagnose voice leading** — use Voicing Inspector to identify bad voicings; tune `VoiceLeadingEngine` (range clamping, extended chord stacking, power chord exclusion)
-- [ ] **ChordType selector UI** — dropdown in Jam Lab for Power/Triad/Full/Extended; wire through `generateAccompaniment()` call and `PlaybackLoopJamLabHandler`
-- [ ] **Slash chord support** — `ChordSlot` gets optional `bassOverridePitchClass`; `generateBass()` reads it; correct C/G [0,5,9] and D/F# [0,3,8] in reference JSON
+- [ ] **Complete voicing audit** — systematic test across all keys, VL on/off, all density settings. Register shrillness (strings/ensemble) fixed 05/09. Remaining: voice leading quality tuning, extended chord stacking
+- [ ] **Round-robin voicing variation** — guitar cycles `GuitarChordLibrary` voicings per bar; piano cycles root/first/second inversion algorithmically per bar. Layer onto clean audited voicings only
 - [ ] **Live volume mixer fix** — volume changes only take effect after Stop+Play; fix: apply multiply in playback loop rather than at generation time
-- [ ] **Verify 7th chord notes audible** — ChordNoteBuilder now correct; confirm with Voicing Inspector that guitar/piano are producing 7th tones
+- [ ] **ChordType selector UI** — wire `instrumentDensity` through for all remaining channels beyond Guitar + Piano
+- [ ] **Slash chord support** — `ChordSlot` gets optional `bassOverridePitchClass`; `generateBass()` reads it; correct C/G [0,5,9] and D/F# [0,3,8] in reference JSON
+- [ ] **Verify 7th chord tones audible** — confirm with Voicing Inspector that guitar/piano produce 7th tones at TETRAD density
 - [ ] **Genre-specific mixer defaults** — `genreMixerDefaults: Map<Genre, Map<Int, Float>>`. Guitar confirmed: Funk/Disco/Ska ~115%, Jazz ~90%
 
 ### Save System (next after theory work)
 - [ ] Context-aware save button (Save Guitar Pattern / Save Band Setup / Save Loop / Save Genre)
 - [ ] Save prompt on navigation to Let's Jam!
 - [ ] Storage decision: Room database (right long-term) vs SharedPreferences (faster to ship)
+
+### Code Maintenance
+- [ ] **Split `JamLabActivity.kt`** (~1,900+ lines)
 
 ### Music Dashboard
 - [ ] ✏️ pencil per chord when extended chord mode is on
@@ -615,11 +650,16 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 - [x] Screen-off audio + wake lock
 - [x] JamLabAudioEngine genre-change auto-patch wiring
 - [x] Ear-tune channel volumes (channelVolumeScale confirmed)
-- [x] Voice leading toggle (19/08/2026) — diagnostic tuning in progress
-- [x] Voicing Inspector panel 👁 (19/08/2026)
+- [x] Voice leading toggle (19/08/2026)
+- [x] Voicing Inspector panel 👁 (19/08/2026, expanded 02/09/2026)
+- [x] Clipboard voicing logger (02/09/2026)
+- [x] ChordDensity selector UI — Guitar + Piano (02/09/2026)
+- [x] Register audit — all instruments (29/08/2026, 02/09/2026, 05/09/2026)
+- [x] Strings shrillness fix — fold at C6, no clamp (05/09/2026)
+- [x] Ensemble shrillness fix — fold at C6, no clamp (05/09/2026)
 - [ ] Genre-specific mixer defaults (deferred)
 - [ ] Live volume mixer fix (bug — changes need Stop+Play to take effect)
-- [ ] ChordType selector UI (Power/Triad/Full/Extended)
+- [ ] Round-robin voicing variation
 - [ ] Slash chord support
 - [ ] Save system
 - [ ] KeyboardPreset system
@@ -630,17 +670,19 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 - [x] Live on LoopBuilder, Jam Lab, Jam Screen
 - [x] Active chord highlighting during playback
 - [x] Consistent across navigation (skip-first-push pattern)
+- [x] V7 display bug fixed — `effectiveRomanLabel` on `ChordSlot`
 - [ ] Full overlay ⚙️ popups
 - [ ] Theory Engine Room + Song Builder versions
 
 **Theory Foundation**
-- [x] `ChordNoteBuilder.kt` — all 25 chord qualities, ChordType enum (19/08/2026)
-- [x] `VoiceLeadingEngine.kt` — nearest-note algorithm (19/08/2026)
-- [x] `GenreChordStyle.kt` — degree-vs-quality bug fixed (19/08/2026)
-- [x] `findGuitarVoicing()` + `findPianoChordNotes()` — delegate to ChordNoteBuilder (19/08/2026)
-- [x] `generateAccompaniment()` — voiceLeadingEnabled + tracking vars (19/08/2026)
-- [ ] Voice leading diagnostic + tuning
-- [ ] ChordType selector UI
+- [x] `ChordNoteBuilder.kt` — all 25 chord qualities, ChordType + ChordDensity enums
+- [x] `VoiceLeadingEngine.kt` — nearest-note algorithm
+- [x] `GenreChordStyle.kt` — degree-vs-quality bug fixed
+- [x] `GuitarChordLibrary.kt` — 2,942 voicings loaded from assets
+- [x] `PianoChordLibrary.kt` — 412 voicings loaded from assets
+- [x] `findGuitarVoicing()` + `findPianoChordNotes()` — library first, algorithmic fallback
+- [x] `generateAccompaniment()` — voiceLeadingEnabled + instrumentDensity + tracking vars
+- [ ] Voice leading quality tuning (ongoing)
 - [ ] Slash chord support
 - [ ] Verify 7th chord tones audible on guitar + piano
 
@@ -705,155 +747,3 @@ Built, tested, reverted, deleted 31/07. Recoverable from git history (`c26a60e`)
 - [ ] Play Store account + screenshots + app icon + description + keywords
 - [ ] Landing page + GitHub README
 - [ ] Recruit ~20 beta testers (guitar forums, Facebook groups, Reddit)
-
-Good session. Real progress today:
-
-VoiceLeadingEngine algorithm fixed — all voices now move independently
-GuitarChordLibrary wired up with 2,942 real guitar grips
-First chord seeding fixed — voice leading now starts from a library voicing
-Bad data filter added to bestVoicing()
-
-The high pitch and 7-note chords are the next thing to address. The likely causes:
-
-bestVoicing() fallback path returning high-register voicings when the bass-note filter eliminates everything
-Root doubling in the library voicings pushing note count up
-No upper ceiling check on voice-led notes after the first chord
-
-Before next session, update CLAUDE.md with today's changes so we don't lose context. Key things to capture:
-
-GuitarChordLibrary.kt created, initialized in FretboardLayoutsApplication
-Asset: voicings_compact.json (guitar), piano JSON also in assets but not yet wired
-VoiceLeadingEngine.leadTo() rewritten — nearest-PC algorithm
-generateAccompaniment() guitar and piano seeding fixed
-Still to fix: high register voicings, 7-note cap, per-genre voicing style (Rock/Pop → open/spread, Jazz → Drop 2/shell, Blues/Funk → shell/comping per Gemini research)
-
-Good work today. See you tomorrow.
-
-Session 29/08/2026 — Instrument Range Audit
-
-Files changed: VoiceLeadingEngine.kt, GuitarChordLibrary.kt, StyleEngine.kt, JamLabActivity.kt, FretboardLayoutsApplication.kt
-
-Completed:
-
-VoiceLeadingEngine.leadTo() rewritten — nearest-PC algorithm replaces index-based mapping. All voices now move independently to closest chord tone.
-GuitarChordLibrary.kt created — loads voicings_compact.json (2,942 real guitar grips) from assets. Initialized in FretboardLayoutsApplication.onCreate(). Piano JSON in assets but not yet wired.
-findGuitarVoicing() updated — library lookup first, algorithmic spread voicing as fallback.
-generateAccompaniment() — first chord seeded from findGuitarVoicing() / findPianoChordNotes() before voice leading takes over.
-findBassPitch() base corrected from 28 (E1) to 24 (C1) — bass was playing wrong key entirely.
-generateBass() — all non-root pitches (fifth, sixth, b7th, third) now interval-based from root instead of independent findBassPitch() lookups.
-findStringsPitch() raised from C3 base to C4 base — strings now sit above piano.
-generateStrings() — third voice added, fifth now interval-based.
-generateEnsemble() — now a 2-note open-fifth pad rooted at C5+, clearly above strings.
-generateOrgan() — shell voicing using intervals.take(4), root in C4–B4, fold replaces clamp.
-findBrassChordNotes() — root narrowed to C4–G4, fold replaces clamp, FULL voicing (4 notes) replaces TRIAD so b7th is included on 7th chords.
-generateReed(), generateEthnic() — fifth now interval-based.
-generateSynth() — moved from findPianoChordNotes() to G3–E4 range.
-Voicing inspector expanded to all melodic channels (0–8, 10, 11).
-Genre-based instrument row hiding removed — all rows always visible, SF2-only instruments unchanged.
-Confirmed ranges after audit:
-Bass 29–43, Guitar 41–72, Piano 48–65, Organ 60–72, Strings 60–76, Ensemble 72–88 (pad), Brass 52–72, Reed single note C4 range, Ethnic 60–74.
-
-Still to do:
-
-Voicing density settings: triad / tetrad / full per instrument
-Register settings: low / mid / high per instrument
-Per-genre mixer defaults (values still being finalised)
-Wire piano voicings JSON
-V7 display bug in Music Dashboard
-Split JamLabActivity.kt (now ~1,900+ lines)
-
-Good call. Here's what we accomplished today:
-
-Done this session:
-
-ProgressionDefinitions.kt — effectiveRomanLabel computed property on ChordSlot; resolveProgression() now uses it. V7 display bug fixed.
-PianoChordLibrary.kt — new singleton, mirrors GuitarChordLibrary pattern, loads voicings_compact_piano.json, discards degenerate entries
-FretboardLayoutsApplication.kt — PianoChordLibrary.initialize(this) added
-StyleEngine.findPianoChordNotes() — library lookup as primary path, ChordNoteBuilder as fallback
-
-Next session — in order:
-
-Voicing density selector (Power / Triad / Full / Extended) — UI in Jam Lab + wired through PlaybackLoopJamLabHandler → generateAccompaniment()
-Round-robin voicing variation toggle — guitar cycles library voicings, piano cycles algorithmically generated inversions
-Then back to the broader pending list (live volume fix, ChordType UI, per-genre mixer defaults)
-
-Before next session — update CLAUDE.md with today's changes:
-
-PianoChordLibrary.kt created, initialized in FretboardLayoutsApplication
-Asset: voicings_compact_piano.json (412 entries)
-effectiveRomanLabel on ChordSlot — V7 display bug fixed
-findPianoChordNotes() now uses library as primary path
-Piano inversion cycling planned (round-robin next session)
-
-quick question, the chord density can be done on piano as well, right? I mean the 6 or 7 notes being played on guitar at the moment sometimes, is more relevant for a piano with left and right hand playing. if density set tight on guitar, say only 3 note triad, and wide on piano, a fulll 7 note accompaniment could be played.
-
-Absolutely — and it's actually more musically correct that way.
-
-Guitar is physically limited to 6 strings, and dense voicings above 5 notes start sounding muddy with distortion or heavy strumming. Tight triads or 4-note shells suit guitar well.
-
-Piano has no such constraint — left hand can hold a wide bass interval while right hand spreads a full 5-7 note voicing across two octaves. A 7-note chord on piano sounds rich; the same on guitar sounds like a car crash.
-
-So the density setting should be per instrument, not global. Exactly like volume is per channel.
-
-The UI implication: instead of one density dropdown, each instrument row in Jam Lab gets its own density selector — same pattern as the existing role selector (Off / Strum / Pick / Hybrid). Something like:
-
-Guitar:  [Triad ▼]    Piano: [Full ▼]
-Options per instrument:
-
-Power — root + fifth only (guitar mainly)
-Triad — 3 notes
-Tetrad — 4 notes (7th chords)
-Full — all chord tones the quality defines
-Auto — instrument-appropriate default (guitar=triad/tetrad, piano=full)
-Auto is probably the right default so it sounds good out of the box without the user needing to understand the difference.
-
-Good thinking — note this in CLAUDE.md before you push so it's captured for next session.
-
-Session 02/09/2026 — Voicing Density, Register Audit, Clipboard Logger
-
-Files changed: ChordNoteBuilder.kt, JamLabViewModel.kt, StyleEngine.kt, JamLabActivity.kt
-
-Completed:
-
-ChordNoteBuilder.kt — TETRAD added to ChordType enum ("Tetrad (7th)"). ChordDensity enum
-added (POWER/TRIAD/TETRAD/FULL/AUTO) with toChordType(channel) extension. AUTO defaults:
-Guitar=TRIAD, Piano/Organ=FULL.
-
-JamLabViewModel.kt — instrumentDensity state added, keyed by instrument key, defaults AUTO.
-
-StyleEngine.kt — instrumentDensity parameter added to generateAccompaniment(). Per-instrument
-ChordType resolved from density at loop start, threaded into generateGuitar(),
-generateGuitarPicking(), generatePiano() call sites. Pitch class bug fixed in
-findGuitarVoicing() algorithmic fallback — was calling buildNotes(0,...) giving C's
-intervals for every root. Fixed to intervalsFor() mapped through chord.rootPitchClass.
-Register separation audit and fixes:
-Organ: root raised to C5–B5 (was C4), simplified to root+5th hollow pad
-Strings: base raised from C4 to C5, clamp updated to A4–E6
-Brass: kept at C4–G4 — staccato stabs contrast rhythmically with piano's sustained comping
-Final confirmed register map (ear-tested, all instruments enabled):
-Bass:     C2        — isolated
-Guitar:   C3–G4     — library voicings
-Piano:    C4–B4     — library voicings, full chord
-Brass:    C4–B4     — stabs only, short duration
-Reed:     C4        — single root note
-Ethnic:   C4–D5     — root+5th
-Organ:    C5–C6     — root+5th pad
-Strings:  C5–E6     — three-voice pad
-Ensemble: C5–D6     — open-fifth pad
-
-JamLabActivity.kt — Voicing density selector UI added to InstrumentRoleMatrix for Guitar
-and Piano rows. Chip-style selector (Power/Triad/Tetrad/Full/Auto), Power excluded from
-Piano. Clipboard voicing logger added to VoicingDiagnosticPanel — "📋 Copy log" button
-captures all bars played (keyed by barIndex, overwrites on loop repeat) and copies full
-log as plain text to clipboard. Log resets on new timeline generation.
-
-Next session:
-
-Voicing audit — systematic test of all progressions across multiple keys, VL on/off,
-all density settings. Results captured in spreadsheet and pasted into session. Fix any
-pitch class, register, or chord tone errors found before proceeding.
-
-After audit:
-Round-robin voicing variation — guitar cycles library voicings per bar, piano cycles
-root/first/second inversion algorithmically per bar.
-Then: live volume fix, per-genre mixer defaults, split JamLabActivity.kt.
